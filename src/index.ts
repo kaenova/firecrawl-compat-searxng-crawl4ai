@@ -37,39 +37,48 @@ function checkAuth(req: Request): Response | null {
 }
 
 /* ------------------------------------------------------------------
-   Server
+   App fetch handler (exported for testing)
    ------------------------------------------------------------------ */
 
-const server = Bun.serve({
-  port: config.PORT,
-  async fetch(req) {
-    const url = new URL(req.url);
-    const pathname = url.pathname;
+export async function appFetch(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const pathname = url.pathname;
 
-    // Optional Bearer-token auth
-    const authError = checkAuth(req);
-    if (authError) return authError;
+  // Optional Bearer-token auth
+  const authError = checkAuth(req);
+  if (authError) return authError;
 
-    // --- GET /v2/health -------------------------------------------------
-    if (req.method === "GET" && pathname === "/v2/health") {
-      return healthHandler(req);
-    }
+  // --- GET /v2/health -------------------------------------------------
+  if (req.method === "GET" && pathname === "/v2/health") {
+    return healthHandler(req);
+  }
 
-    // --- POST /v2/search ------------------------------------------------
-    if (req.method === "POST" && pathname === "/v2/search") {
-      return handleSearch(req);
-    }
+  // --- POST /v2/search ------------------------------------------------
+  if (req.method === "POST" && pathname === "/v2/search") {
+    return handleSearch(req);
+  }
 
-    // --- POST /v2/scrape ------------------------------------------------
-    if (req.method === "POST" && pathname === "/v2/scrape") {
-      return handleScrape(req);
-    }
+  // --- POST /v2/scrape ------------------------------------------------
+  if (req.method === "POST" && pathname === "/v2/scrape") {
+    return handleScrape(req);
+  }
 
-    // --- catch-all ------------------------------------------------------
-    return jsonResponse({ success: false, error: "Not found" }, 404);
-  },
-});
+  // --- catch-all ------------------------------------------------------
+  return jsonResponse({ success: false, error: "Not found" }, 404);
+}
 
-export default server;
+/* ------------------------------------------------------------------
+   Server (only starts when this file is the main module)
+   ------------------------------------------------------------------ */
 
-console.log(`Server listening on http://localhost:${server.port}`);
+let server: ReturnType<typeof Bun.serve> | undefined;
+
+if (import.meta.main) {
+  server = Bun.serve({
+    port: config.PORT,
+    fetch: appFetch,
+  });
+  console.log(`Server listening on http://localhost:${server.port}`);
+}
+
+export { server };
