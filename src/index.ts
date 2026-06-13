@@ -107,6 +107,35 @@ export async function appFetch(req: Request): Promise<Response> {
 }
 
 /* ------------------------------------------------------------------
+   MIME types for static files
+   ------------------------------------------------------------------ */
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".eot": "application/vnd.ms-fontobject",
+  ".wasm": "application/wasm",
+};
+
+function getContentType(path: string): string {
+  const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
+  return MIME_TYPES[ext] || "application/octet-stream";
+}
+
+/* ------------------------------------------------------------------
    Server (only starts when this file is the main module)
    ------------------------------------------------------------------ */
 
@@ -125,9 +154,13 @@ if (import.meta.main) {
       // Static files
       const filePath = path === "/" ? "client/dist/index.html" : `client/dist${path}`;
       const file = Bun.file(filePath);
-      if (await file.exists()) return new Response(file);
+      if (await file.exists()) {
+        return new Response(file, { headers: { "Content-Type": getContentType(filePath) } });
+      }
       // SPA fallback
-      return new Response(Bun.file("client/dist/index.html"));
+      return new Response(Bun.file("client/dist/index.html"), {
+        headers: { "Content-Type": "text/html" },
+      });
     },
   });
   console.log(`Server listening on http://localhost:${server.port}`);
