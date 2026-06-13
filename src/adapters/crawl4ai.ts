@@ -237,11 +237,7 @@ export function transformResult(
   crawl4aiResult: Crawl4aiResult,
   formats?: ("markdown" | "html" | "rawHtml" | "screenshot")[]
 ): ScrapeResponse {
-  console.log("[DEBUG] transformResult input keys:", Object.keys(crawl4aiResult));
   const result = normalizeJobResult(crawl4aiResult);
-  console.log("[DEBUG] after normalize keys:", Object.keys(result));
-  console.log("[DEBUG] result.markdown type:", typeof result.markdown, "value:", result.markdown);
-  console.log("[DEBUG] result.raw_markdown type:", typeof result.raw_markdown, "value length:", result.raw_markdown?.length);
   const requested = new Set(formats ?? ["markdown"]);
   const markdownText =
     result.markdown ??
