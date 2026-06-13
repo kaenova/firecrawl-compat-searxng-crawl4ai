@@ -223,6 +223,16 @@ bun test tests/sdk/
 
 ## 🐳 Docker
 
+### Pull from Docker Hub
+
+```bash
+docker pull kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+docker run -p 3002:3002 \
+  -e SEARXNG_URL=http://host.docker.internal:8080 \
+  -e CRAWL4AI_URL=http://host.docker.internal:11235 \
+  kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+```
+
 ### Build & Run
 
 ```bash
