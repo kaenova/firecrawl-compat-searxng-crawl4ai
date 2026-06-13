@@ -56,7 +56,7 @@ export async function handleScrape(req: Request): Promise<Response> {
     Array.isArray(formats) && formats.includes("screenshot");
 
   try {
-    const { task_id } = await submitCrawl(body.url, {
+    const submitted = await submitCrawl(body.url, {
       waitFor,
       mobile,
       headers,
@@ -65,7 +65,9 @@ export async function handleScrape(req: Request): Promise<Response> {
       screenshot,
     });
 
-    const result = await pollTask(task_id, timeout, DEFAULT_POLL_INTERVAL);
+    const result = submitted.completed && submitted.result
+      ? submitted.result
+      : await pollTask(submitted.task_id as string, timeout, DEFAULT_POLL_INTERVAL);
     const response = Response.json(transformResult(result, formats), { status: 200 });
     logRequest({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt });
     return response;

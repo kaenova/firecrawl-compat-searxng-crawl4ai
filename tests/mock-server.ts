@@ -40,13 +40,10 @@ export function startMockSearxng(port = 18080): MockServer {
       const pathname = url.pathname;
 
       if (req.method === "GET" && pathname === "/search") {
-        // Echo back the query param so tests can verify transformation
         const q = url.searchParams.get("q") ?? "";
         const pageno = url.searchParams.get("pageno") ?? "1";
         const language = url.searchParams.get("language") ?? undefined;
         const time_range = url.searchParams.get("time_range") ?? undefined;
-
-        // Embed echo params into the first result's content so parseSearxngResponse preserves them
         const echoPayload = JSON.stringify({ q, pageno, language, time_range });
 
         return Response.json({
@@ -72,8 +69,22 @@ export function startMockSearxng(port = 18080): MockServer {
 
 /** Task store for Crawl4AI mock */
 const crawl4aiTasks = new Map<string, { status: string; result?: unknown; error?: string; pendingUntil?: number }>();
-
 let autoCompleteDelay = 0;
+
+function buildCrawl4aiResult() {
+  return {
+    markdown: "# Hello World\n\nThis is markdown content.",
+    html: "<html><body><h1>Hello World</h1><p>This is HTML content.</p></body></html>",
+    raw_html: "<html><body><h1>Hello World</h1><p>This is raw HTML content.</p></body></html>",
+    screenshot: "data:image/png;base64,abc123",
+    metadata: {
+      title: "Hello World Page",
+      description: "A test page",
+      source_url: "https://example.com",
+      status_code: 200,
+    },
+  };
+}
 
 /** Start a mock Crawl4AI server */
 export function startMockCrawl4ai(port = 11235): MockServer {
@@ -83,57 +94,30 @@ export function startMockCrawl4ai(port = 11235): MockServer {
       const url = new URL(req.url);
       const pathname = url.pathname;
 
-      // POST /crawl — submit job
-      if (req.method === "POST" && pathname === "/crawl") {
+      if (req.method === "POST" && pathname === "/crawl/job") {
         const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         crawl4aiTasks.set(taskId, {
           status: "pending",
           result: undefined,
           pendingUntil: Date.now() + autoCompleteDelay,
         });
-        return Response.json({ task_id: taskId });
+        return Response.json({ task_id: taskId }, { status: 202 });
       }
 
-      // GET /task/:id — poll job
-      if (req.method === "GET" && pathname.startsWith("/task/")) {
-        const taskId = pathname.slice("/task/".length);
+      if (req.method === "GET" && pathname.startsWith("/crawl/job/")) {
+        const taskId = pathname.slice("/crawl/job/".length);
         const task = crawl4aiTasks.get(taskId);
 
-        if (!task) {
-          return Response.json({ error: "Task not found" }, { status: 404 });
-        }
-
-        // Special "never-complete" task for timeout tests
+        if (!task) return Response.json({ error: "Task not found" }, { status: 404 });
         if (taskId.startsWith("task-never-")) {
-          return Response.json({
-            task_id: taskId,
-            status: "pending",
-          });
+          return Response.json({ task_id: taskId, status: "processing" });
         }
-
-        // If there's a pendingUntil, respect it
         if (task.status === "pending" && task.pendingUntil && Date.now() < task.pendingUntil) {
-          return Response.json({
-            task_id: taskId,
-            status: "pending",
-          });
+          return Response.json({ task_id: taskId, status: "processing" });
         }
-
-        // For normal tasks, auto-complete on first poll (after delay)
         if (task.status === "pending") {
           task.status = "completed";
-          task.result = {
-            markdown: "# Hello World\n\nThis is markdown content.",
-            html: "<html><body><h1>Hello World</h1><p>This is HTML content.</p></body></html>",
-            raw_html: "<html><body><h1>Hello World</h1><p>This is raw HTML content.</p></body></html>",
-            screenshot: "data:image/png;base64,abc123",
-            metadata: {
-              title: "Hello World Page",
-              description: "A test page",
-              source_url: "https://example.com",
-              status_code: 200,
-            },
-          };
+          task.result = buildCrawl4aiResult();
         }
 
         return Response.json({
@@ -151,22 +135,18 @@ export function startMockCrawl4ai(port = 11235): MockServer {
   return { port, stop: () => server.stop(true) };
 }
 
-/** Helper to cleanly stop a mock server */
 export function stopMockServer(server: MockServer): void {
   server.stop();
 }
 
-/** Reset all Crawl4AI mock task state */
 export function resetCrawl4aiTasks(): void {
   crawl4aiTasks.clear();
 }
 
-/** Set the global auto-complete delay for Crawl4AI tasks (ms) */
 export function setCrawl4aiDelay(ms: number): void {
   autoCompleteDelay = ms;
 }
 
-/** Create a task that will never complete (for timeout tests) */
 export function createNeverCompletingTask(): string {
   const taskId = `task-never-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   crawl4aiTasks.set(taskId, { status: "pending" });

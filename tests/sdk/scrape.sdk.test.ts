@@ -10,18 +10,17 @@ let mockCrawl4ai: ReturnType<typeof Bun.serve>;
 let proxyProc: ReturnType<typeof Bun.spawn>;
 
 beforeAll(async () => {
-  // 1. Start mock Crawl4AI server
   mockCrawl4ai = Bun.serve({
     port: MOCK_CRAWL4AI_PORT,
     fetch(req) {
       const url = new URL(req.url);
       const pathname = url.pathname;
 
-      if (pathname === "/crawl" && req.method === "POST") {
-        return Response.json({ task_id: "mock-task-123" });
+      if (pathname === "/crawl/job" && req.method === "POST") {
+        return Response.json({ task_id: "mock-task-123" }, { status: 202 });
       }
 
-      if (pathname.startsWith("/task/")) {
+      if (pathname === "/crawl/job/mock-task-123" && req.method === "GET") {
         return Response.json({
           task_id: "mock-task-123",
           status: "completed",
@@ -42,7 +41,6 @@ beforeAll(async () => {
     },
   });
 
-  // 2. Spawn proxy as child process
   proxyProc = Bun.spawn({
     cmd: ["bun", "run", "src/index.ts"],
     cwd: process.cwd(),
@@ -57,7 +55,6 @@ beforeAll(async () => {
     stderr: "pipe",
   });
 
-  // 3. Wait for proxy to be ready
   for (let i = 0; i < 50; i++) {
     try {
       const res = await fetch(`${PROXY_URL}/v2/health`);
@@ -68,7 +65,6 @@ beforeAll(async () => {
     await new Promise((r) => setTimeout(r, 100));
   }
 
-  // 4. Initialize SDK client pointing at proxy
   app = new FirecrawlClient({ apiKey: "test-key", apiUrl: PROXY_URL });
 });
 

@@ -1,6 +1,10 @@
 // Crawl4AI async bridge — submit, poll, and transform
 
 const CRAWL4AI_URL = process.env.CRAWL4AI_URL ?? "http://localhost:11235";
+const CRAWL4AI_SUBMIT_PATH = process.env.CRAWL4AI_SUBMIT_PATH ?? "/crawl/job";
+const CRAWL4AI_POLL_PATH = process.env.CRAWL4AI_POLL_PATH ?? "/crawl/job";
+const CRAWL4AI_DIRECT_PATH = process.env.CRAWL4AI_DIRECT_PATH ?? "/crawl";
+const CRAWL4AI_RESULT_PATH = process.env.CRAWL4AI_RESULT_PATH ?? "/crawl/job";
 
 /** Body sent to Crawl4AI POST /crawl */
 interface Crawl4aiSubmitBody {
@@ -80,7 +84,7 @@ export async function submitCrawl(
     onlyMainContent?: boolean;
     screenshot?: boolean;
   } = {}
-): Promise<{ task_id: string }> {
+): Promise<{ task_id?: string; result?: Crawl4aiResult; completed?: boolean }> {
   const body: Crawl4aiSubmitBody = {
     urls: [url],
   };
@@ -93,18 +97,40 @@ export async function submitCrawl(
   if (options.onlyMainContent !== undefined) body.fit_markdown = options.onlyMainContent;
   if (options.screenshot !== undefined) body.screenshot = options.screenshot;
 
-  const res = await fetch(`${CRAWL4AI_URL}/crawl`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const paths = [CRAWL4AI_SUBMIT_PATH, CRAWL4AI_DIRECT_PATH];
 
-  if (!res.ok) {
-    throw new Error(`Crawl4AI submit failed: ${res.status} ${res.statusText}`);
+  let lastError: string | null = null;
+  for (const path of paths) {
+    const res = await fetch(`${CRAWL4AI_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      lastError = `Crawl4AI submit failed: ${res.status} ${res.statusText}`;
+      continue;
+    }
+
+    const json = (await res.json()) as Record<string, unknown>;
+
+    if (typeof json.task_id === "string") {
+      return { task_id: json.task_id };
+    }
+
+
+    if (json.result && typeof json.result === "object") {
+      return { completed: true, result: json.result as Crawl4aiResult };
+    }
+
+    if (typeof json.markdown === "string" || typeof json.html === "string" || typeof json.raw_html === "string" || typeof json.rawHtml === "string") {
+      return { completed: true, result: json as Crawl4aiResult };
+    }
+
+    lastError = "Crawl4AI submit returned an unexpected payload";
   }
 
-  const json = (await res.json()) as Crawl4aiSubmitResponse;
-  return { task_id: json.task_id };
+  throw new Error(lastError ?? "Crawl4AI submit failed");
 }
 
 /**
@@ -120,7 +146,7 @@ export async function pollTask(
   const deadline = Date.now() + maxTimeoutSeconds * 1000;
 
   while (Date.now() < deadline) {
-    const res = await fetch(`${CRAWL4AI_URL}/task/${taskId}`);
+    const res = await fetch(`${CRAWL4AI_URL}${CRAWL4AI_POLL_PATH}/${taskId}`);
 
     if (!res.ok) {
       throw new Error(`Crawl4AI poll failed: ${res.status} ${res.statusText}`);
@@ -128,14 +154,27 @@ export async function pollTask(
 
     const task = (await res.json()) as Crawl4aiTaskResponse;
 
-    if (task.status === "completed") {
+    if (task.status === "completed" || task.status === "success") {
       if (!task.result) {
-        throw new Error("Crawl4AI task completed but result is missing");
+        const direct = await fetch(`${CRAWL4AI_URL}${CRAWL4AI_RESULT_PATH}/${taskId}`);
+        if (!direct.ok) {
+          throw new Error("Crawl4AI task completed but result is missing");
+        }
+        const directTask = (await direct.json()) as Crawl4aiTaskResponse;
+        if (!directTask.result) {
+          throw new Error("Crawl4AI task completed but result is missing");
+        }
+        return directTask.result;
       }
       return task.result;
     }
 
-    if (task.status === "failed") {
+    if (task.status === "processing" || task.status === "running" || task.status === "pending") {
+      await Bun.sleep(pollIntervalMs);
+      continue;
+    }
+
+    if (task.status === "failed" || task.status === "error") {
       throw new Error(task.error ? `Crawl4AI job failed: ${task.error}` : "Crawl4AI job failed");
     }
 
