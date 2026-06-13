@@ -2,6 +2,13 @@ import { config } from "./config.ts";
 import { healthHandler } from "./routes/health.ts";
 import { handleSearch } from "./routes/search.ts";
 import { handleScrape } from "./routes/scrape.ts";
+import { handleMetrics } from "./routes/api/metrics.ts";
+import { handleActivity } from "./routes/api/activity.ts";
+import {
+  handleCrawl4aiProxySubmit,
+  handleCrawl4aiProxyPoll,
+  handleSearxngProxy,
+} from "./routes/api/proxy.ts";
 import { logFailure, logRequest } from "./logger.ts";
 
 /* ------------------------------------------------------------------
@@ -53,11 +60,13 @@ function checkAuth(req: Request): Response | null {
 export async function appFetch(req: Request): Promise<Response> {
   const startedAt = Date.now();
   const { method, path, requestId } = getRequestContext(req);
+  const reqClone = req.clone();
 
   try {
     const authError = checkAuth(req);
     if (authError) {
-      logRequest({ method, path, status: authError.status, durationMs: Date.now() - startedAt, requestId });
+      const reqBody = await reqClone.text().catch(() => undefined);
+      logRequest({ method, path, status: authError.status, durationMs: Date.now() - startedAt, requestId, requestBody: reqBody });
       return authError;
     }
 
@@ -69,14 +78,30 @@ export async function appFetch(req: Request): Promise<Response> {
       response = await handleSearch(req);
     } else if (req.method === "POST" && path === "/v2/scrape") {
       response = await handleScrape(req);
+    } else if (req.method === "GET" && path === "/api/metrics") {
+      response = await handleMetrics(req);
+    } else if (req.method === "GET" && path === "/api/activity") {
+      response = await handleActivity(req);
+    } else if (req.method === "POST" && path === "/api/proxy/crawl4ai/crawl/job") {
+      response = await handleCrawl4aiProxySubmit(req);
+    } else if (req.method === "GET" && path.startsWith("/api/proxy/crawl4ai/crawl/job/")) {
+      const id = path.slice("/api/proxy/crawl4ai/crawl/job/".length);
+      response = await handleCrawl4aiProxyPoll(req, id);
+    } else if (req.method === "GET" && path === "/api/proxy/searxng/search") {
+      response = await handleSearxngProxy(req);
     } else {
       response = jsonResponse({ success: false, error: "Not found" }, 404);
     }
 
-    logRequest({ method, path, status: response.status, durationMs: Date.now() - startedAt, requestId });
+    const [reqBody, resBody] = await Promise.all([
+      reqClone.text().catch(() => undefined),
+      response.clone().text().catch(() => undefined),
+    ]);
+    logRequest({ method, path, status: response.status, durationMs: Date.now() - startedAt, requestId, requestBody: reqBody, responseBody: resBody });
     return response;
   } catch (error) {
-    logFailure({ method, path, status: 500, durationMs: Date.now() - startedAt, requestId, error });
+    const reqBody = await reqClone.text().catch(() => undefined);
+    logFailure({ method, path, status: 500, durationMs: Date.now() - startedAt, requestId, error, requestBody: reqBody });
     return jsonResponse({ success: false, error: "Internal server error" }, 500);
   }
 }
@@ -90,7 +115,20 @@ let server: ReturnType<typeof Bun.serve> | undefined;
 if (import.meta.main) {
   server = Bun.serve({
     port: config.PORT,
-    fetch: appFetch,
+    fetch: async (req) => {
+      const url = new URL(req.url);
+      const path = url.pathname;
+      // API routes go through appFetch
+      if (path.startsWith("/v2/") || path.startsWith("/api/")) {
+        return appFetch(req);
+      }
+      // Static files
+      const filePath = path === "/" ? "client/dist/index.html" : `client/dist${path}`;
+      const file = Bun.file(filePath);
+      if (await file.exists()) return new Response(file);
+      // SPA fallback
+      return new Response(Bun.file("client/dist/index.html"));
+    },
   });
   console.log(`Server listening on http://localhost:${server.port}`);
 }
