@@ -188,34 +188,65 @@ export async function pollTask(
  * Map a Crawl4AI result to the Firecrawl ScrapeResponse shape.
  * Only includes fields requested by `formats`.
  */
+function normalizeJobResult(crawl4aiResult: Crawl4aiResult): Crawl4aiResult {
+  const result = crawl4aiResult.result;
+  if (result && typeof result === "object") {
+    const results = Array.isArray((result as { results?: unknown }).results)
+      ? ((result as { results: Crawl4aiResult[] }).results)
+      : [];
+    const first = results[0];
+    if (first) {
+      return {
+        ...first,
+        metadata: {
+          ...(first.metadata ?? {}),
+          ...(crawl4aiResult.metadata ?? {}),
+          status_code:
+            first.metadata?.status_code ?? first.metadata?.statusCode ?? crawl4aiResult.metadata?.status_code ?? crawl4aiResult.metadata?.statusCode,
+        },
+      };
+    }
+  }
+  return crawl4aiResult;
+}
+
+/**
+ * Map a Crawl4AI result to the Firecrawl ScrapeResponse shape.
+ * Only includes fields requested by `formats`.
+ */
 export function transformResult(
   crawl4aiResult: Crawl4aiResult,
   formats?: ("markdown" | "html" | "rawHtml" | "screenshot")[]
 ): ScrapeResponse {
+  const result = normalizeJobResult(crawl4aiResult);
   const requested = new Set(formats ?? ["markdown"]);
+  const markdownText = result.markdown ?? result.raw_markdown ?? result.result?.results?.[0]?.markdown?.raw_markdown ?? "";
+  const htmlText = result.html ?? result.cleaned_html ?? result.raw_html ?? result.rawHtml ?? result.result?.results?.[0]?.html ?? "";
+  const rawHtmlText = result.raw_html ?? result.rawHtml ?? result.result?.results?.[0]?.html ?? "";
+  const screenshotText = result.screenshot ?? result.result?.results?.[0]?.screenshot ?? "";
 
   const data: ScrapeResponse["data"] = {
     metadata: {
-      title: crawl4aiResult.metadata?.title,
-      description: crawl4aiResult.metadata?.description,
+      title: result.metadata?.title ?? result.result?.results?.[0]?.metadata?.title,
+      description: result.metadata?.description ?? result.result?.results?.[0]?.metadata?.description,
       sourceURL:
-        crawl4aiResult.metadata?.source_url ?? crawl4aiResult.metadata?.sourceURL,
+        result.metadata?.source_url ?? result.metadata?.sourceURL ?? result.result?.results?.[0]?.url,
       statusCode:
-        crawl4aiResult.metadata?.status_code ?? crawl4aiResult.metadata?.statusCode ?? 200,
+        result.metadata?.status_code ?? result.metadata?.statusCode ?? result.result?.results?.[0]?.status_code ?? 200,
     },
   };
 
   if (requested.has("markdown")) {
-    data.markdown = crawl4aiResult.markdown ?? "";
+    data.markdown = markdownText;
   }
   if (requested.has("html")) {
-    data.html = crawl4aiResult.html ?? "";
+    data.html = htmlText;
   }
   if (requested.has("rawHtml")) {
-    data.rawHtml = crawl4aiResult.raw_html ?? crawl4aiResult.rawHtml ?? "";
+    data.rawHtml = rawHtmlText;
   }
   if (requested.has("screenshot")) {
-    data.screenshot = crawl4aiResult.screenshot ?? "";
+    data.screenshot = screenshotText;
   }
 
   return { success: true, data };
