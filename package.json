@@ -1,0 +1,18 @@
+{
+  "name": "firecrawl-searxng-crawl4ai-proxy",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "firecrawl": "^4.25.4"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "test": "bun test",
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  }
+}
