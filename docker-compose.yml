@@ -1,0 +1,23 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "3002:3002"
+    environment:
+      SEARXNG_URL: http://searxng:8080
+      CRAWL4AI_URL: http://crawl4ai:11235
+      SCRAPE_TIMEOUT: 60
+      POLL_INTERVAL: 1000
+    depends_on:
+      - searxng
+      - crawl4ai
+
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8080:8080"
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    ports:
+      - "11235:11235"
