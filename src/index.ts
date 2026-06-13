@@ -88,6 +88,7 @@ export async function appFetch(req: Request): Promise<Response> {
 let server: ReturnType<typeof Bun.serve> | undefined;
 
 if (import.meta.main) {
+  console.log(`[DEBUG] Proxy starting with CRAWL4AI_URL=${process.env.CRAWL4AI_URL}`);
   server = Bun.serve({
     port: config.PORT,
     fetch: appFetch,
