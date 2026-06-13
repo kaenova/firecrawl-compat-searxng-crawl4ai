@@ -1,4 +1,5 @@
 import { submitCrawl, pollTask, transformResult } from "../adapters/crawl4ai.ts";
+import { logFailure, logRequest } from "../logger.ts";
 
 const DEFAULT_TIMEOUT = Number(process.env.SCRAPE_TIMEOUT ?? "60");
 const DEFAULT_POLL_INTERVAL = Number(process.env.POLL_INTERVAL ?? "1000");
@@ -20,21 +21,27 @@ interface ErrorResponse {
 }
 
 export async function handleScrape(req: Request): Promise<Response> {
+  const startedAt = Date.now();
+  const path = new URL(req.url).pathname;
   let body: ScrapeRequestBody;
   try {
     body = (await req.json()) as ScrapeRequestBody;
   } catch {
-    return Response.json(
+    const response = Response.json(
       { success: false, error: "Invalid JSON body" } satisfies ErrorResponse,
       { status: 400 }
     );
+    logRequest({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt });
+    return response;
   }
 
   if (typeof body.url !== "string" || body.url.trim().length === 0) {
-    return Response.json(
+    const response = Response.json(
       { success: false, error: "url is required" } satisfies ErrorResponse,
       { status: 400 }
     );
+    logRequest({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt });
+    return response;
   }
 
   const formats = body.formats;
@@ -59,40 +66,48 @@ export async function handleScrape(req: Request): Promise<Response> {
     });
 
     const result = await pollTask(task_id, timeout, DEFAULT_POLL_INTERVAL);
-    const response = transformResult(result, formats);
-
-    return Response.json(response, { status: 200 });
+    const response = Response.json(transformResult(result, formats), { status: 200 });
+    logRequest({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt });
+    return response;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes("Poll timeout")) {
-      return Response.json(
+      const response = Response.json(
         { success: false, error: "Scrape timed out" } satisfies ErrorResponse,
         { status: 504 }
       );
+      logFailure({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt, error: err });
+      return response;
     }
 
     if (message.includes("Crawl4AI submit failed")) {
-      return Response.json(
+      const response = Response.json(
         {
           success: false,
           error: "Scrape backend unavailable",
         } satisfies ErrorResponse,
         { status: 502 }
       );
+      logFailure({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt, error: err });
+      return response;
     }
 
     if (message.includes("Crawl4AI job failed")) {
-      return Response.json(
+      const response = Response.json(
         { success: false, error: message } satisfies ErrorResponse,
         { status: 502 }
       );
+      logFailure({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt, error: err });
+      return response;
     }
 
     // Catch-all for other backend errors (poll failures, missing result, etc.)
-    return Response.json(
+    const response = Response.json(
       { success: false, error: message } satisfies ErrorResponse,
       { status: 502 }
     );
+    logFailure({ method: req.method, path, status: response.status, durationMs: Date.now() - startedAt, error: err });
+    return response;
   }
 }

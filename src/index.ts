@@ -2,6 +2,7 @@ import { config } from "./config.ts";
 import { healthHandler } from "./routes/health.ts";
 import { handleSearch } from "./routes/search.ts";
 import { handleScrape } from "./routes/scrape.ts";
+import { logFailure, logRequest } from "./logger.ts";
 
 /* ------------------------------------------------------------------
    HTTP helpers
@@ -17,6 +18,15 @@ async function parseJsonBody(req: Request): Promise<unknown> {
   } catch {
     return undefined;
   }
+}
+
+function getRequestContext(req: Request): { method: string; path: string; requestId?: string } {
+  const url = new URL(req.url);
+  return {
+    method: req.method,
+    path: url.pathname,
+    requestId: req.headers.get("x-request-id") ?? undefined,
+  };
 }
 
 /* ------------------------------------------------------------------
@@ -41,30 +51,34 @@ function checkAuth(req: Request): Response | null {
    ------------------------------------------------------------------ */
 
 export async function appFetch(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const pathname = url.pathname;
+  const startedAt = Date.now();
+  const { method, path, requestId } = getRequestContext(req);
 
-  // Optional Bearer-token auth
-  const authError = checkAuth(req);
-  if (authError) return authError;
+  try {
+    const authError = checkAuth(req);
+    if (authError) {
+      logRequest({ method, path, status: authError.status, durationMs: Date.now() - startedAt, requestId });
+      return authError;
+    }
 
-  // --- GET /v2/health -------------------------------------------------
-  if (req.method === "GET" && pathname === "/v2/health") {
-    return healthHandler(req);
+    let response: Response;
+
+    if (req.method === "GET" && path === "/v2/health") {
+      response = healthHandler(req);
+    } else if (req.method === "POST" && path === "/v2/search") {
+      response = await handleSearch(req);
+    } else if (req.method === "POST" && path === "/v2/scrape") {
+      response = await handleScrape(req);
+    } else {
+      response = jsonResponse({ success: false, error: "Not found" }, 404);
+    }
+
+    logRequest({ method, path, status: response.status, durationMs: Date.now() - startedAt, requestId });
+    return response;
+  } catch (error) {
+    logFailure({ method, path, status: 500, durationMs: Date.now() - startedAt, requestId, error });
+    return jsonResponse({ success: false, error: "Internal server error" }, 500);
   }
-
-  // --- POST /v2/search ------------------------------------------------
-  if (req.method === "POST" && pathname === "/v2/search") {
-    return handleSearch(req);
-  }
-
-  // --- POST /v2/scrape ------------------------------------------------
-  if (req.method === "POST" && pathname === "/v2/scrape") {
-    return handleScrape(req);
-  }
-
-  // --- catch-all ------------------------------------------------------
-  return jsonResponse({ success: false, error: "Not found" }, 404);
 }
 
 /* ------------------------------------------------------------------
