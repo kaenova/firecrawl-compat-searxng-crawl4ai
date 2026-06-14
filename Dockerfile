@@ -22,6 +22,8 @@ COPY --from=backend-builder /app/src ./src
 COPY --from=backend-builder /app/package.json ./
 COPY --from=frontend-builder /app/client/dist ./client/dist
 
+RUN mkdir -p /app/data
+ENV ACTIVITY_DB_PATH=/app/data/activity.db
 ENV PORT=3002
 EXPOSE 3002
 
