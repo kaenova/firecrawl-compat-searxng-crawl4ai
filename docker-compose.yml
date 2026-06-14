@@ -15,11 +15,16 @@ services:
       - searxng
       - crawl4ai
 
+  # Pre-configured SearXNG with JSON output
+  # Source: https://github.com/kaenova/searxng-json-docker
+  # Image:  https://hub.docker.com/r/kaenova/searxng-json/tags
   searxng:
-    image: searxng/searxng:latest
+    image: kaenova/searxng-json:latest
     ports:
       - "8080:8080"
 
+  # Official Crawl4AI async crawler
+  # Image: https://hub.docker.com/r/unclecode/crawl4ai
   crawl4ai:
     image: unclecode/crawl4ai:latest
     ports:

@@ -263,6 +263,10 @@ Spins up:
 
 A named volume `activity-db` is mounted at `/app/data` and `ACTIVITY_DB_PATH` is set to `/app/data/activity.db` so request activity persists across restarts.
 
+**Backend images used:**
+- **SearXNG JSON** — `kaenova/searxng-json:latest` ([Docker Hub](https://hub.docker.com/r/kaenova/searxng-json/tags) · [GitHub](https://github.com/kaenova/searxng-json-docker)) — pre-configured for JSON output so the proxy can parse results without HTML scraping.
+- **Crawl4AI** — `unclecode/crawl4ai:latest` ([Docker Hub](https://hub.docker.com/r/unclecode/crawl4ai)) — the official async web-crawling engine.
+
 ---
 
 ## 💾 Request Activity Persistence
@@ -322,8 +326,8 @@ const scrape = await app.scrape("https://example.com", { formats: ["markdown"] }
 - **Runtime:** [Bun](https://bun.sh) v1.3+
 - **Language:** TypeScript 5.9+
 - **Test Runner:** Built-in `bun:test`
-- **Search Backend:** [SearXNG](https://github.com/searxng/searxng)
-- **Scrape Backend:** [Crawl4AI](https://github.com/unclecode/crawl4ai)
+- **Search Backend:** [SearXNG](https://github.com/searxng/searxng) — proxy uses [kaenova/searxng-json](https://hub.docker.com/r/kaenova/searxng-json/tags) for JSON-native output ([source](https://github.com/kaenova/searxng-json-docker))
+- **Scrape Backend:** [Crawl4AI](https://github.com/unclecode/crawl4ai) — available on Docker Hub as [`unclecode/crawl4ai`](https://hub.docker.com/r/unclecode/crawl4ai)
 - **Container:** Docker + Docker Compose
 - **CI/CD:** GitHub Actions
 
