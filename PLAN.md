@@ -1,300 +1,108 @@
-# Request Activity + Playground Reliability Implementation Plan
+# PLAN — Web UI: Hash Router & Mobile First
 
-> **For Hermes:** Use `subagent-driven-development` to implement this plan task-by-task.
-
-**Goal:** Persist request activity to SQLite, fix the playground 500 errors, and only save activity for high-priority paths.
-
-**Architecture:** Keep the current Bun proxy/API design, but replace the in-memory activity buffer with a SQLite-backed store for persisted request activity. Add a tight allowlist so only important paths are written to the activity table. In parallel, harden the frontend playground proxy endpoints so bad upstream responses become explicit non-500 failures with useful error bodies.
-
-**Tech Stack:** Bun, TypeScript, SQLite, existing logger/activity dashboard code, existing playground proxy routes, existing tests.
+> Target: Web UI hanya berjalan di path `/#/` (Hash Router) dan sepenuhnya mobile-friendly.
+> Scope: `client/src/*` — React + shadcn/ui + Tailwind.
 
 ---
 
-## 1. Scope and Outcomes
+## 1. Hash Router Governance (UI hanya di `/#/`)
 
-### 1.1 What this plan changes
+### 1.1 Routing Contract
+- **Semua navigasi internal** harus melalui React Router `NavLink` / `useNavigate`. Tidak ada `<a href="/...">` mentah yang memicu full page reload.
+- **Browser address bar** selalu menunjukkan `/#/dashboard`, `/#/playground`, `/#/activity`. Hash fragment tidak pernah dikirim ke server — server cukup serve `index.html` untuk semua non-API path.
 
-1. Save request activity into SQLite instead of memory-only storage.
-2. Fix the playground proxy so `searxng` and `crawl4ai` requests do not collapse into generic `500 Internal Server Error`.
-3. Restrict persisted request activity to **high-priority paths only**.
+### 1.2 Server SPA Fallback (sudah ada, tetap dijaga)
+- Server: kalau path tidak diawali `/v2/` atau `/api/`, fallback ke `client/dist/index.html` tanpa redirect.
+- Tidak perlu route handler untuk `/dashboard`, `/playground`, `/activity` di server.
 
-### 1.2 High-priority paths to persist
-
-Only these paths should be written to the activity database:
-
-- `POST /v2/search`
-- `POST /v2/scrape`
-- `GET /api/proxy/searxng/search`
-- `POST /api/proxy/crawl4ai/crawl/job`
-- `GET /api/proxy/crawl4ai/crawl/job/:id`
-
-Optional, if you want visibility but not persistence, keep them only in console logs:
-
-- `GET /v2/health`
-- `GET /api/metrics`
-- `GET /api/activity`
-
-### 1.3 Non-goals
-
-- No auth changes.
-- No new frontend pages.
-- No rewrite of search/scrape business logic unless needed to fix the playground 500.
-- No persistence for every static asset request.
+### 1.3 Audit & Hardening Task
+1. **Audit link internal** di seluruh `client/src` — pastikan tidak ada `<a href="/...">` atau `window.location.href = ...`.
+2. **Redirect safety** — `App.tsx` sudah pakai `<Route path="/" element={<Navigate to="/dashboard" replace />} />`. Pastikan tidak ada path lain yang tidak di-cover oleh `<Routes>`.
+3. **Deep link support** — buka `/#/activity` langsung dari address bar harus tetap render Activity page (hash router menangani ini otomatis, tapi perlu di-verify).
+4. **External link policy** — kalau ada link ke docs/repo, pakai `<a target="_blank" rel="noopener noreferrer">` dan bukan React Router.
 
 ---
 
-## 2. Current Codebase Facts
+## 2. Mobile First Refinement
 
-### 2.1 Request activity is currently in memory
+### 2.1 Layout Foundation (sudah bagus, tetap dijaga)
+- Sidebar: collapsible di mobile dengan toggle hamburger + overlay. `md:` breakpoint untuk desktop static sidebar.
+- Main content: `flex-1` dengan padding yang cukup. Di mobile jangan terlalu mepet ke tepi.
 
-The current logger stores activity in `src/logger.ts` with an in-memory `logBuffer: ActivityLog[] = []` capped at 5000 entries.
+### 2.2 Touch Targets & Accessibility
+- **Minimum tap target: 44×44px** (WCAG 2.1).
+- **Button, nav item, badge, pagination button** — semua harus punya padding/height yang memenuhi 44px minimal.
+- **Input font-size: 16px** — mencegah iOS auto-zoom saat focus. Jangan pakai `text-sm` (14px) di input fields.
 
-### 2.2 Activity reads from that in-memory buffer
+### 2.3 Dashboard Page (`pages/Dashboard.tsx`)
+1. **Stat cards** — sudah `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`, cukup. Pastikan card content tidak overflow.
+2. **Charts** — sudah pakai `ResponsiveContainer width="100%"`. Pastikan chart height di mobile tidak terlalu besar (maks 250px di mobile vs 300px desktop).
+3. **Recent Requests table** — wrap `<Table>` di dalam `<div className="overflow-x-auto">` supaya tidak overflow horizontal di mobile.
+4. **Controls (Range/Granularity)** — `flex flex-wrap items-center gap-4` sudah responsif. Pastikan `<Select>` tidak terlalu lebar di mobile (max-width atau full-width sesuai konteks).
 
-`src/stores/activity-store.ts` reads via `getAllLogs()` and filters/searches in memory.
+### 2.4 API Playground Page (`pages/ApiPlayground.tsx`)
+1. **Tabs** — `TabsList` di mobile harus bisa scroll horizontal kalau label terlalu panjang. Tambahkan `className="overflow-x-auto"` pada `TabsList` wrapper.
+2. **Sub-tab (Search / Scrape)** — pakai `flex-wrap` atau scroll supaya tidak overflow.
+3. **Form fields** — semua `<Input>` pakai `text-base` (16px) di mobile. Gunakan `w-full` untuk input agar memenuhi lebar layar.
+4. **Checkbox formats** — `flex-wrap` supaya pilihan format (markdown/html/rawHtml) turun ke baris baru di layar sempit.
+5. **Response area** — `min-h-[400px]` terlalu besar di mobile. Ubah menjadi:
+   - Mobile: `min-h-[200px]` atau `h-[50vh]`
+   - Desktop: tetap `min-h-[400px]`
+   - Gunakan `md:min-h-[400px] min-h-[200px]`.
+6. **Crawl4AI status badges** — jangan terlalu banyak elemen sebaris di mobile; pakai `flex-wrap`.
 
-### 2.3 Metrics are derived from the same log buffer
+### 2.5 Request Activity Page (`pages/RequestActivity.tsx`)
+1. **Search bar** — sudah ada icon + input. Pastikan input full-width di mobile.
+2. **Filters** — `flex flex-wrap items-end gap-4` bisa menghasilkan terlalu banyak baris di mobile. Pertimbangkan:
+   - Collapsible filter panel di mobile (toggle "Filters" button)
+   - Atau minimal turunkan gap dan pastikan setiap filter element full-width di mobile (`w-full sm:w-auto`).
+3. **Table** — wrap `<Table>` di `<div className="overflow-x-auto">`. Di mobile, tabel 5 kolom akan overflow — horizontal scroll adalah solusi paling praktis.
+4. **Pagination** — tombol Prev/Next harus cukup besar (min 44px tinggi). Info page + total tetap tampil di tengah atau atas.
+5. **Dialog detail** — `max-w-3xl` mungkin terlalu lebar di mobile. Ubah ke:
+   - `max-w-3xl md:max-w-3xl max-w-[95vw]` atau gunakan `w-[95vw] md:w-auto md:max-w-3xl`.
+   - Pastikan `DialogContent` tidak melebihi viewport lebar.
+   - Pre blocks (request/response body) sudah pakai `overflow-auto`, cukup. Tapi pastikan `max-h-48` tidak terlalu kecil di mobile — mungkin `max-h-[40vh]` lebih baik.
 
-`src/stores/metrics-store.ts` also reads from `getAllLogs()`.
-
-### 2.4 Playground proxy routes are pass-through handlers
-
-`src/routes/api/proxy.ts` forwards requests to SearXNG and Crawl4AI with little or no protective handling, which is a likely source of the 500s.
-
----
-
-## 3. Proposed Architecture
-
-### 3.1 Move request activity persistence to SQLite
-
-Create a small SQLite-backed activity repository that stores only the high-priority paths. Keep the structured JSON console logs if desired, but decouple persistence from console output.
-
-### 3.2 Add a path allowlist filter
-
-Before a request is persisted, check whether its path belongs to the high-priority set.
-
-### 3.3 Harden playground proxy routes
-
-Make the playground proxy return explicit upstream errors when:
-- request JSON is invalid
-- upstream fetch fails
-- upstream returns non-2xx
-- upstream response cannot be parsed
-
-Do not let those errors bubble into a generic 500 unless it is a true unexpected crash.
-
-### 3.4 Keep metrics/activity endpoints reading from the new store
-
-`/api/activity` and `/api/metrics` should query SQLite-backed data, not the in-memory buffer.
-
----
-
-## 4. Files to Modify or Create
-
-### Backend files
-
-- Modify: `src/logger.ts`
-- Modify: `src/stores/activity-store.ts`
-- Modify: `src/stores/metrics-store.ts`
-- Modify: `src/routes/search.ts`
-- Modify: `src/routes/scrape.ts`
-- Modify: `src/routes/api/proxy.ts`
-- Modify: `src/index.ts`
-- Modify: `src/types/dashboard.ts`
-- Create: `src/stores/sqlite-activity-store.ts`
-- Create: `src/stores/activity-paths.ts`
-- Create: `src/db.ts` or `src/storage/db.ts` if the repo already has a storage namespace
-- Create: `tests/api/activity-sqlite.test.ts`
-- Create: `tests/api/playground-proxy.test.ts`
-
-### Frontend files if needed for diagnostics only
-
-- Modify: `client/src/components/playground/*` only if the playground needs better error display
+### 2.6 Global Mobile Tweaks
+1. **Page title header** — `h-16` + `px-6`. Di mobile padding bisa dikurangi ke `px-4`. Font size `text-xl` cukup.
+2. **Main content padding** — `p-6` di desktop. Di mobile bisa `p-4` atau `px-4 py-6` supaya tidak terlalu mepet tapi tetap ada ruang napas.
+3. **Prevent horizontal scroll** — pastikan tidak ada elemen yang `width: 100% + padding/margin` tanpa `box-sizing`.
+4. **Safe area** — kalau ada notched phone, pertimbangkan `env(safe-area-inset-*)` tapi ini optional untuk MVP.
 
 ---
 
-## 5. Task Breakdown
+## 3. Verification Checklist
 
-### Task 1: Define the activity persistence contract
+### Hash Router
+- [ ] Buka `/` → redirect ke `/#/dashboard`
+- [ ] Buka `/#/playground` langsung → render Playground
+- [ ] Buka `/#/activity?page=2` langsung → render Activity (query string tetap bekerja)
+- [ ] Klik semua nav item → tidak ada full page reload (Network tab tidak ada document request)
+- [ ] Refresh di `/#/dashboard` → tetap dashboard, tidak 404
 
-**Objective:** Freeze the SQLite row shape and the high-priority path allowlist before changing code.
-
-**Files:**
-- Modify: `src/types/dashboard.ts`
-- Create: `src/stores/activity-paths.ts`
-
-**Decisions to lock:**
-- Persisted row fields: `id`, `timestamp`, `method`, `path`, `status`, `durationMs`, `requestBody`, `responseBody`, `error`
-- Only persist the high-priority paths listed above
-- Keep truncation behavior for large request/response bodies
-
-**Verification:**
-- The allowlist file should be readable from both logger and store code
-- The row shape should remain compatible with the dashboard API response
+### Mobile (Chrome DevTools iPhone SE / 375px)
+- [ ] Sidebar toggle muncul, sidebar bisa dibuka/tutup, overlay clickable
+- [ ] Dashboard: stat cards 1 kolom, charts tidak overflow, table bisa scroll horizontal
+- [ ] Playground: tabs tidak overflow (scrollable atau wrapped), input tidak zoom di focus, response area tidak terlalu tinggi
+- [ ] Activity: filter tidak terlalu panjang/overflow, table scroll horizontal, dialog tidak melebihi layar, pagination button mudah di-tap
+- [ ] Seluruh halaman: tidak ada horizontal scroll tak terduga, tap target ≥ 44px
 
 ---
 
-### Task 2: Create the SQLite-backed activity store
+## 4. File Target
 
-**Objective:** Persist request activity entries to SQLite with insert/query support.
-
-**Files:**
-- Create: `src/stores/sqlite-activity-store.ts`
-- Create: `src/db.ts` or `src/storage/db.ts`
-
-**Implementation details:**
-- Create the table on startup if missing
-- Insert rows only for allowed paths
-- Query with search, method, path, status, time range, limit, and offset
-- Preserve ordering by newest first
-- Keep the implementation minimal; no ORM unless the project already uses one
-
-**Verification:**
-- Insert a sample activity row
-- Query it back by path
-- Confirm disallowed paths are not inserted
+| File | Perubahan |
+|------|-----------|
+| `client/src/pages/Dashboard.tsx` | Wrap table in `overflow-x-auto`, adjust chart height mobile |
+| `client/src/pages/ApiPlayground.tsx` | Scrollable tabs, flex-wrap checkboxes, responsive response height, full-width inputs |
+| `client/src/pages/RequestActivity.tsx` | Collapsible/compact filters, wrap table in `overflow-x-auto`, responsive dialog width, pagination touch size |
+| `client/src/App.tsx` | Adjust main padding mobile (`p-4 md:p-6`) |
+| `client/src/components/Sidebar.tsx` | Verify tap targets ≥ 44px, mobile toggle size |
 
 ---
 
-### Task 3: Wire request logging to SQLite persistence
-
-**Objective:** Make `logRequest()` and `logFailure()` write persisted activity only for high-priority paths.
-
-**Files:**
-- Modify: `src/logger.ts`
-- Modify: `src/routes/search.ts`
-- Modify: `src/routes/scrape.ts`
-- Modify: `src/routes/api/proxy.ts`
-
-**Implementation details:**
-- Keep JSON console logging if helpful
-- Add a persistence call only when the path matches the allowlist
-- Truncate request/response bodies before saving if needed
-- Do not persist low-priority paths
-
-**Verification:**
-- A request to `/v2/search` creates one persisted activity row
-- A request to `/api/proxy/searxng/search` creates one persisted activity row
-- A request to `/api/metrics` does not create a row
-
----
-
-### Task 4: Switch activity and metrics reads to the SQLite store
-
-**Objective:** Ensure the dashboard reads from persisted activity data.
-
-**Files:**
-- Modify: `src/stores/activity-store.ts`
-- Modify: `src/stores/metrics-store.ts`
-- Modify: `src/routes/api/activity.ts`
-- Modify: `src/routes/api/metrics.ts`
-
-**Implementation details:**
-- Replace `getAllLogs()` usage with SQLite queries
-- Keep API response shape stable for the frontend
-- Preserve filtering/search/pagination behavior
-- For metrics, compute from the persisted activity rows
-
-**Verification:**
-- `/api/activity` still returns the same shape
-- `/api/metrics` still returns summary + time series
-- Both endpoints work after restart, proving persistence
-
----
-
-### Task 5: Fix playground 500s by hardening proxy routes
-
-**Objective:** Make playground proxy requests fail with actionable errors instead of generic 500s.
-
-**Files:**
-- Modify: `src/routes/api/proxy.ts`
-- Modify: `src/index.ts`
-- Create: `tests/api/playground-proxy.test.ts`
-
-**Implementation details:**
-- Wrap `req.json()` with explicit invalid JSON handling
-- Check upstream `fetch()` status and body safely
-- Return meaningful `4xx`/`5xx` responses depending on the failure cause
-- Keep the public route contracts unchanged
-
-**Verification:**
-- Invalid JSON returns a controlled `400`
-- Upstream unreachable returns a controlled `502`
-- Unexpected backend response shape does not become an unhelpful generic crash
-
----
-
-### Task 6: Add tests for path allowlist and persistence behavior
-
-**Objective:** Prove only high-priority paths are stored.
-
-**Files:**
-- Create: `tests/api/activity-sqlite.test.ts`
-- Modify: existing logger/activity tests if needed
-
-**Test cases:**
-- Allowed paths are persisted
-- Disallowed paths are not persisted
-- Search/pagination still work on persisted rows
-
-**Verification:**
-- `bun test` passes
-- Tests prove persistence rules are enforced
-
----
-
-### Task 7: Run live verification and clean up
-
-**Objective:** Confirm the SQLite store, activity filtering, and playground error handling work in the running app.
-
-**Files:**
-- No new files unless a small test helper is needed
-
-**Verification checklist:**
-- Trigger `/v2/search` and `/v2/scrape`
-- Trigger a playground SearXNG and Crawl4AI request
-- Confirm allowed paths appear in `/api/activity`
-- Confirm low-priority paths do not appear
-- Confirm playground failure modes return explicit errors instead of silent 500s
-- Run `bun test`
-
----
-
-## 6. Implementation Order
-
-1. Define allowlist + persisted row contract
-2. Add SQLite storage layer
-3. Wire logger to SQLite persistence
-4. Switch dashboard reads to SQLite
-5. Harden playground routes
-6. Add and run tests
-7. Verify live behavior
-
----
-
-## 7. Acceptance Criteria
-
-- Request activity persists across restart via SQLite
-- Only high-priority paths are saved
-- Playground proxy no longer returns unexplained 500s for expected failure cases
-- Dashboard endpoints still work
-- Tests pass
-
----
-
-## 8. Suggested Commit Sequence
-
-1. `feat: define activity allowlist and sqlite contract`
-2. `feat: persist request activity to sqlite`
-3. `fix: harden playground proxy errors`
-4. `test: cover activity persistence and proxy failures`
-5. `docs: update plan and verification notes`
-
----
-
-## 9. Notes for the Implementer
-
-- Do not keep the old in-memory-only buffer as the source of truth once SQLite is working.
-- If you need temporary compatibility, keep the in-memory buffer only as a short-lived bridge, not the final design.
-- Prefer explicit, simple SQL over abstraction.
-- The allowlist should be centralized in one file so the logger, store, and tests all agree.
+## 5. Non-Goals (Out of Scope)
+- PWA / service worker
+- Dark/light mode toggle (shadcn default sudah mendukung via class, tidak perlu tambahan)
+- Animasi transisi halaman
+- Pull-to-refresh
