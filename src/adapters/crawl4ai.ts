@@ -62,9 +62,11 @@ interface ScrapeResponse {
     rawHtml?: string;
     screenshot?: string;
     metadata: {
-      title?: string;
-      description?: string;
+      title?: string | string[];
+      description?: string | string[];
       sourceURL?: string;
+      url?: string;
+      language?: string | string[] | null;
       statusCode: number;
     };
   };
@@ -185,6 +187,57 @@ export async function pollTask(
 }
 
 /**
+ * Coerce any Crawl4AI value into a plain string.
+ * Crawl4AI occasionally returns structured markdown/html objects
+ * (e.g. { raw_markdown: "...", fit_html: "" }) instead of plain strings.
+ * Firecrawl spec requires data.markdown / data.html to be strings.
+ */
+function coerceString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+
+  // Crawl4AI structured markdown object — extract the richest text field
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const candidates = [
+      obj.markdown,
+      obj.raw_markdown,
+      obj.references_markdown,
+      obj.fit_markdown,
+      obj.html,
+      obj.cleaned_html,
+      obj.raw_html,
+      obj.rawHtml,
+      obj.fit_html,
+      obj.screenshot,
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c.length > 0) return c;
+    }
+    // Fallback: stringify if nothing found
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
+}
+
+/**
+ * Extract a string from Crawl4AI result trying multiple field names.
+ */
+function pickString(result: Crawl4aiResult, ...keys: string[]): string {
+  for (const key of keys) {
+    const val = (result as Record<string, unknown>)[key];
+    if (val !== undefined && val !== null) return coerceString(val);
+  }
+  return "";
+}
+
+/**
  * Map a Crawl4AI result to the Firecrawl ScrapeResponse shape.
  * Only includes fields requested by `formats`.
  */
@@ -194,7 +247,7 @@ function normalizeJobResult(crawl4aiResult: Crawl4aiResult): Crawl4aiResult {
     ? (crawl4aiResult as { results: Crawl4aiResult[] }).results
     : undefined;
   if (jobResults && jobResults.length > 0) {
-    const first = jobResults[0];
+    const first = jobResults[0]!;
     return {
       ...first,
       metadata: {
@@ -212,7 +265,7 @@ function normalizeJobResult(crawl4aiResult: Crawl4aiResult): Crawl4aiResult {
     const nestedResults = Array.isArray((nested as { results?: unknown }).results)
       ? ((nested as { results: Crawl4aiResult[] }).results)
       : [];
-    const first = nestedResults[0];
+    const first = nestedResults[0]!;
     if (first) {
       return {
         ...first,
@@ -239,31 +292,19 @@ export function transformResult(
 ): ScrapeResponse {
   const result = normalizeJobResult(crawl4aiResult);
   const requested = new Set(formats ?? ["markdown"]);
-  const markdownText =
-    result.markdown ??
-    result.raw_markdown ??
-    result.references_markdown ??
-    result.fit_markdown ??
-    "";
-  const htmlText =
-    result.html ??
-    result.cleaned_html ??
-    result.fit_html ??
-    result.raw_html ??
-    result.rawHtml ??
-    "";
-  const rawHtmlText =
-    result.raw_html ??
-    result.rawHtml ??
-    result.html ??
-    "";
-  const screenshotText = result.screenshot ?? "";
+
+  const markdownText = pickString(result, "markdown", "raw_markdown", "references_markdown", "fit_markdown");
+  const htmlText = pickString(result, "html", "cleaned_html", "fit_html", "raw_html", "rawHtml");
+  const rawHtmlText = pickString(result, "raw_html", "rawHtml", "html");
+  const screenshotText = pickString(result, "screenshot");
 
   const data: ScrapeResponse["data"] = {
     metadata: {
-      title: result.metadata?.title,
-      description: result.metadata?.description,
-      sourceURL: result.metadata?.source_url ?? result.metadata?.sourceURL ?? result.url,
+      title: result.metadata?.title ?? undefined,
+      description: result.metadata?.description ?? undefined,
+      sourceURL: coerceString(result.metadata?.source_url ?? result.metadata?.sourceURL ?? result.url),
+      url: result.url ? coerceString(result.url) : undefined,
+      language: result.metadata?.language ?? undefined,
       statusCode: result.metadata?.status_code ?? result.metadata?.statusCode ?? 200,
     },
   };
