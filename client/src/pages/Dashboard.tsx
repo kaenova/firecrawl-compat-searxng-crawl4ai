@@ -224,8 +224,9 @@ export default function Dashboard() {
             <CardTitle>Latency Over Time</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={timeSeries}>
+            <div className="h-[250px] md:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={timeSeries}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="timestamp"
@@ -250,6 +251,7 @@ export default function Dashboard() {
                 />
               </LineChart>
             </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -257,8 +259,9 @@ export default function Dashboard() {
             <CardTitle>Throughput Over Time</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={timeSeries}>
+            <div className="h-[250px] md:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={timeSeries}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="timestamp"
@@ -277,6 +280,7 @@ export default function Dashboard() {
                 <Bar dataKey="count" fill="#2563eb" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -296,7 +300,8 @@ export default function Dashboard() {
               No recent requests
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Time</TableHead>
@@ -331,7 +336,8 @@ export default function Dashboard() {
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

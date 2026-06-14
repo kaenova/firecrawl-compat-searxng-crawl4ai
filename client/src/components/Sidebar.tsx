@@ -17,7 +17,7 @@ export default function Sidebar() {
       {/* Mobile toggle */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="fixed left-4 top-4 z-50 rounded-md border bg-card p-2 shadow md:hidden"
+        className="fixed left-4 top-4 z-50 rounded-md border bg-card p-2 shadow md:hidden min-h-[44px] min-w-[44px] justify-center items-center"
       >
         {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </button>
@@ -40,7 +40,7 @@ export default function Sidebar() {
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
                   isActive
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"

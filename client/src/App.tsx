@@ -13,7 +13,7 @@ function PageTitle() {
   };
   const title = titles[location.pathname] || "";
   return (
-    <header className="flex h-16 items-center border-b bg-card px-6">
+    <header className="flex h-16 items-center border-b bg-card px-4 md:px-6">
       <h1 className="text-xl font-semibold">{title}</h1>
     </header>
   );
@@ -25,7 +25,7 @@ export default function App() {
       <Sidebar />
       <div className="flex flex-1 flex-col md:ml-0">
         <PageTitle />
-        <main className="flex-1 p-6">
+        <main className="flex-1 p-4 md:p-6">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
