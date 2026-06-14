@@ -1,498 +1,300 @@
-# PLAN — Web UI for firecrawl-searxng-crawl4ai-proxy
+# Request Activity + Playground Reliability Implementation Plan
 
-<!-- ============================================================
-     Overview: Add a React + shadcn/ui SPA served from the Bun
-     backend at /#/...  — no auth, fully client-side routed.
-     FOUR pages: Dashboard, API Playground, Request Activity.
+> **For Hermes:** Use `subagent-driven-development` to implement this plan task-by-task.
 
-     Project root: firecrawl-searxng-crawl4ai-proxy/
-============================================================ -->
+**Goal:** Persist request activity to SQLite, fix the playground 500 errors, and only save activity for high-priority paths.
 
----
+**Architecture:** Keep the current Bun proxy/API design, but replace the in-memory activity buffer with a SQLite-backed store for persisted request activity. Add a tight allowlist so only important paths are written to the activity table. In parallel, harden the frontend playground proxy endpoints so bad upstream responses become explicit non-500 failures with useful error bodies.
 
-## 1. Architecture Decision
-
-| Concern            | Decision                                                                 |
-| ------------------ | ------------------------------------------------------------------------ |
-| **Frontend**       | React 19 + TypeScript, Vite 6, `react-router` v7 (hash routing `/#/...`) |
-| **Component lib**  | shadcn/ui (Radix primitives + Tailwind CSS v4)                           |
-| **Charts**         | Recharts (Dashboard graphs)                                              |
-| **Icons**          | lucide-react                                                             |
-| **Data fetching**  | Plain `fetch()` from the Bun backend (same origin, no CORS)              |
-| **Serving**        | Bun serves `client/dist/` for non-API paths; SPA fallback to `index.html`|
-| **Auth**           | None on web UI — public dashboard                                        |
-| **New API routes** | `GET /api/metrics`, `GET /api/activity` — internal-only, no Firecrawl auth |
+**Tech Stack:** Bun, TypeScript, SQLite, existing logger/activity dashboard code, existing playground proxy routes, existing tests.
 
 ---
 
-## 2. Directory Structure (new additions)
+## 1. Scope and Outcomes
 
-```
-firecrawl-searxng-crawl4ai-proxy/
-├── client/                        ← NEW: React SPA
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   ├── index.html
-│   ├── src/
-│   │   ├── main.tsx
-│   │   ├── App.tsx
-│   │   ├── index.css              (Tailwind + shadcn CSS vars)
-│   │   ├── lib/
-│   │   │   └── utils.ts           (cn() helper)
-│   │   ├── components/
-│   │   │   ├── ui/                ← shadcn components (button, card, table, dialog, etc.)
-│   │   │   ├── layout/
-│   │   │   │   ├── Sidebar.tsx
-│   │   │   │   └── AppLayout.tsx
-│   │   │   ├── dashboard/
-│   │   │   │   ├── StatCard.tsx
-│   │   │   │   ├── LatencyChart.tsx
-│   │   │   │   ├── ThroughputChart.tsx
-│   │   │   │   ├── SuccessRateChart.tsx
-│   │   │   │   └── RecentRequests.tsx
-│   │   │   ├── playground/
-│   │   │   │   ├── EndpointSelector.tsx
-│   │   │   │   ├── RequestForm.tsx
-│   │   │   │   └── ResponseViewer.tsx
-│   │   │   └── activity/
-│   │   │       ├── ActivityFilters.tsx
-│   │   │       ├── ActivityTable.tsx
-│   │   │       └── RequestDetailDialog.tsx
-│   │   ├── pages/
-│   │   │   ├── DashboardPage.tsx
-│   │   │   ├── PlaygroundPage.tsx
-│   │   │   └── ActivityPage.tsx
-│   │   ├── hooks/
-│   │   │   ├── useMetrics.ts
-│   │   │   └── useActivity.ts
-│   │   └── types/
-│   │       └── api.ts
-│   └── components.json            ← shadcn config
-│
-├── src/                            ← EXISTING Bun backend
-│   ├── index.ts                    ← ** MODIFY: add SPA serving + new API routes
-│   ├── routes/
-│   │   ├── metrics.ts              ← NEW: GET /api/metrics
-│   │   └── activity.ts             ← NEW: GET /api/activity
-│   ├── activity-store.ts           ← NEW: in-memory ring buffer for request logs
-│   └── metrics-store.ts            ← NEW: in-memory metrics aggregator
-│
-└── package.json                    ← ** MODIFY: add root scripts
-```
+### 1.1 What this plan changes
+
+1. Save request activity into SQLite instead of memory-only storage.
+2. Fix the playground proxy so `searxng` and `crawl4ai` requests do not collapse into generic `500 Internal Server Error`.
+3. Restrict persisted request activity to **high-priority paths only**.
+
+### 1.2 High-priority paths to persist
+
+Only these paths should be written to the activity database:
+
+- `POST /v2/search`
+- `POST /v2/scrape`
+- `GET /api/proxy/searxng/search`
+- `POST /api/proxy/crawl4ai/crawl/job`
+- `GET /api/proxy/crawl4ai/crawl/job/:id`
+
+Optional, if you want visibility but not persistence, keep them only in console logs:
+
+- `GET /v2/health`
+- `GET /api/metrics`
+- `GET /api/activity`
+
+### 1.3 Non-goals
+
+- No auth changes.
+- No new frontend pages.
+- No rewrite of search/scrape business logic unless needed to fix the playground 500.
+- No persistence for every static asset request.
 
 ---
 
-## 3. Phase 1 — Scaffold React Client (Vite + shadcn)
+## 2. Current Codebase Facts
 
-### 3.1 Create Vite + React + TypeScript project
+### 2.1 Request activity is currently in memory
 
-Inside `client/`, use `bun create vite --template react-ts`. Then add deps:
+The current logger stores activity in `src/logger.ts` with an in-memory `logBuffer: ActivityLog[] = []` capped at 5000 entries.
 
-```bash
-cd client
-bun add react-router-dom recharts lucide-react
-bun add -D @types/react @types/react-dom tailwindcss @tailwindcss/vite
-```
+### 2.2 Activity reads from that in-memory buffer
 
-### 3.2 Initialize shadcn/ui
+`src/stores/activity-store.ts` reads via `getAllLogs()` and filters/searches in memory.
 
-```bash
-npx shadcn@latest init
-# - TypeScript: yes
-# - Style: New York
-# - Base color: Zinc
-# - CSS vars: yes
-```
+### 2.3 Metrics are derived from the same log buffer
 
-Then add required components:
+`src/stores/metrics-store.ts` also reads from `getAllLogs()`.
 
-```bash
-npx shadcn@latest add button card table dialog input select tabs
-npx shadcn@latest add separator tooltip badge dropdown-menu
-npx shadcn@latest add skeleton scroll-area
-```
+### 2.4 Playground proxy routes are pass-through handlers
 
-### 3.3 Configure Vite
-
-```ts
-// client/vite.config.ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-import path from "path";
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  base: "/", // served from root
-  resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
-  },
-  build: {
-    outDir: "dist",
-  },
-});
-```
-
-### 3.4 Hash Router Setup
-
-Use `createHashRouter` from `react-router-dom` so that all pages are under `/#/dashboard`, `/#/playground`, `/#/activity`.
-
-```tsx
-// client/src/App.tsx (sketch)
-import { createHashRouter, RouterProvider } from "react-router-dom";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { DashboardPage } from "@/pages/DashboardPage";
-import { PlaygroundPage } from "@/pages/PlaygroundPage";
-import { ActivityPage } from "@/pages/ActivityPage";
-
-const router = createHashRouter([
-  {
-    element: <AppLayout />,
-    children: [
-      { path: "/", element: <DashboardPage /> },
-      { path: "/dashboard", element: <DashboardPage /> },
-      { path: "/playground", element: <PlaygroundPage /> },
-      { path: "/activity", element: <ActivityPage /> },
-    ],
-  },
-]);
-```
+`src/routes/api/proxy.ts` forwards requests to SearXNG and Crawl4AI with little or no protective handling, which is a likely source of the 500s.
 
 ---
 
-## 4. Phase 2 — Backend: Activity Store + Metrics + API Routes
+## 3. Proposed Architecture
 
-### 4.1 Activity Store (in-memory ring buffer)
+### 3.1 Move request activity persistence to SQLite
 
-```
-File: src/activity-store.ts
-```
+Create a small SQLite-backed activity repository that stores only the high-priority paths. Keep the structured JSON console logs if desired, but decouple persistence from console output.
 
-Store the last N requests (default 5000) with: `id`, `timestamp`, `method`, `path`, `status`, `durationMs`, `requestBody` (truncated), `responseBody` (truncated), `error` (if any).
+### 3.2 Add a path allowlist filter
 
-Expose:
-- `record(req: ActivityEntry)` — called from `logRequest` / `logFailure`
-- `query(filter: ActivityFilter): ActivityEntry[]` — filter by method, path, status, time range, search text (on `JSON.stringify(entry)`)
-- `stats(timeRange: {from, to}, granularity: string): Metrics` — aggregate stats
+Before a request is persisted, check whether its path belongs to the high-priority set.
 
-### 4.2 Metrics Store
+### 3.3 Harden playground proxy routes
 
-```
-File: src/metrics-store.ts
-```
+Make the playground proxy return explicit upstream errors when:
+- request JSON is invalid
+- upstream fetch fails
+- upstream returns non-2xx
+- upstream response cannot be parsed
 
-Track cumulative counters + time-series buckets (1m, 5m, 1h):
+Do not let those errors bubble into a generic 500 unless it is a true unexpected crash.
 
-| Metric              | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| `total_requests`    | Total requests since start                      |
-| `success_count`     | 2xx responses                                   |
-| `error_count`       | 4xx + 5xx                                       |
-| `latency_p50`       | 50th percentile latency (last window)           |
-| `latency_p95`       | 95th percentile latency (last window)           |
-| `latency_p99`       | 99th percentile latency (last window)           |
-| `timeseries`        | Array of `{timestamp, count, avgLatency, errorCount}` per bucket |
+### 3.4 Keep metrics/activity endpoints reading from the new store
 
-Granularity options: `1m`, `5m`, `15m`, `1h`
-
-### 4.3 API Routes
-
-#### `GET /api/metrics?from=ISO&to=ISO&granularity=5m`
-
-Response:
-
-```json
-{
-  "summary": {
-    "total": 1234,
-    "success": 1100,
-    "errors": 134,
-    "p50": 45,
-    "p95": 230,
-    "p99": 890
-  },
-  "timeseries": [
-    { "timestamp": "2025-06-13T10:00:00Z", "count": 45, "avgLatency": 60, "errors": 2 },
-    ...
-  ],
-  "byEndpoint": {
-    "/v2/search": { "count": 500, "avgLatency": 120, "errors": 10 },
-    "/v2/scrape": { "count": 300, "avgLatency": 4500, "errors": 50 }
-  }
-}
-```
-
-#### `GET /api/activity?method=POST&path=/v2/scrape&status=200&search=github&from=ISO&to=ISO&limit=50&offset=0`
-
-Response:
-
-```json
-{
-  "total": 342,
-  "items": [
-    {
-      "id": "req_abc123",
-      "timestamp": "2025-06-13T10:05:00Z",
-      "method": "POST",
-      "path": "/v2/scrape",
-      "status": 200,
-      "durationMs": 4523,
-      "requestBody": { "url": "https://github.com/kaenova/...", "formats": ["markdown"] },
-      "responseBody": { "success": true, "data": { "markdown": "# firecrawl..." } },
-      "error": null
-    }
-  ]
-}
-```
-
-### 4.4 Integration into `src/index.ts`
-
-Modify `appFetch()` to add these routes **before** the Firecrawl-auth check (they're internal, no API key needed):
-
-```ts
-// NEW routes — no auth
-if (req.method === "GET" && path === "/api/metrics") {
-  return handleMetrics(req);
-}
-if (req.method === "GET" && path === "/api/activity") {
-  return handleActivity(req);
-}
-```
-
-Modify `logRequest()` / `logFailure()` to also call `activityStore.record(...)` and `metricsStore.record(...)`.
-
-Also, add SPA serving for non-API paths — when a path doesn't match any API route, serve `client/dist/index.html` (SPA fallback) or the requested static file.
+`/api/activity` and `/api/metrics` should query SQLite-backed data, not the in-memory buffer.
 
 ---
 
-## 5. Phase 3 — Pages (React)
+## 4. Files to Modify or Create
 
-### 5.1 Sidebar Layout (`components/layout/`)
+### Backend files
 
-```
-┌──────────────────────────────────────────────┐
-│  ┌────────┐  ┌─────────────────────────────┐ │
-│  │ Logo   │  │                             │ │
-│  │────────│  │                             │ │
-│  │ 📊 Dash│  │      Page Content           │ │
-│  │ 🧪 Play│  │                             │ │
-│  │ 📋 Act │  │                             │ │
-│  │        │  │                             │ │
-│  │        │  │                             │ │
-│  └────────┘  └─────────────────────────────┘ │
-└──────────────────────────────────────────────┘
-```
+- Modify: `src/logger.ts`
+- Modify: `src/stores/activity-store.ts`
+- Modify: `src/stores/metrics-store.ts`
+- Modify: `src/routes/search.ts`
+- Modify: `src/routes/scrape.ts`
+- Modify: `src/routes/api/proxy.ts`
+- Modify: `src/index.ts`
+- Modify: `src/types/dashboard.ts`
+- Create: `src/stores/sqlite-activity-store.ts`
+- Create: `src/stores/activity-paths.ts`
+- Create: `src/db.ts` or `src/storage/db.ts` if the repo already has a storage namespace
+- Create: `tests/api/activity-sqlite.test.ts`
+- Create: `tests/api/playground-proxy.test.ts`
 
-Sidebar has 3 nav items with icons (lucide-react):
-- **Dashboard** — `LayoutDashboard` icon
-- **API Playground** — `Play` icon
-- **Request Activity** — `List` icon
+### Frontend files if needed for diagnostics only
 
-Collapsible sidebar (optional later), active state highlighted.
-
-### 5.2 Dashboard Page
-
-Layout:
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  [Total Requests] [Success Rate] [Avg Latency] [Errors]  │  ← StatCards
-│                                                          │
-│  ┌─────────────────────┐ ┌──────────────────────────────┐│
-│  │  Latency Chart      │ │  Throughput Chart            ││
-│  │  (line, p50/p95/p99)│ │  (bar, req/min)              ││
-│  └─────────────────────┘ └──────────────────────────────┘│
-│                                                          │
-│  ┌──────────────────────────────────────────────────────┐│
-│  │  Recent Requests (table, last 10)                    ││
-│  │  Timestamp | Method | Path | Status | Duration       ││
-│  └──────────────────────────────────────────────────────┘│
-│                                                          │
-│  [Time Range Selector: 15m | 1h | 6h | 24h | Custom]   │
-│  [Granularity: 1m | 5m | 15m | 1h]                     │
-└──────────────────────────────────────────────────────────┘
-```
-
-Data from `GET /api/metrics?from=...&to=...&granularity=...`.
-
-Charts use Recharts (`LineChart`, `BarChart`, `ResponsiveContainer`).
-
-StatCards show:
-- **Total Requests** — number + trend arrow
-- **Success Rate** — percentage (green/red)
-- **Avg Latency** — ms, with p95
-- **Error Count** — number
-
-### 5.3 API Playground Page
-
-Three sections/tabs — Firecrawl Proxy, Crawl4AI, SearXNG.
-
-#### Firecrawl Proxy tab
-
-Dropdown: `/v2/search`, `/v2/scrape`
-
-**Search form:**
-
-| Field       | Type     | Default         |
-| ----------- | -------- | --------------- |
-| query       | text     | ""              |
-| page        | number   | 1               |
-| limit       | number   | 10              |
-| format      | select   | markdown        |
-| source      | select   | web             |
-
-**Scrape form:**
-
-| Field       | Type     | Default                             |
-| ----------- | -------- | ----------------------------------- |
-| url         | text     | ""                                  |
-| formats     | multi-select | markdown, html, rawHtml, screenshot |
-| onlyMainContent | toggle | true                            |
-| waitFor     | number   | 0 (ms)                              |
-| timeout     | number   | 30000 (ms)                          |
-
-#### Crawl4AI tab
-
-Dropdown: `POST /crawl/job`, `GET /crawl/job/{task_id}`
-
-**Job submit form:**
-
-| Field       | Type     | Default            |
-| ----------- | -------- | ------------------ |
-| url         | text     | ""                 |
-| output_format| select  | markdown           |
-| priority    | number   | 5                  |
-
-**Job poll form:**
-
-| Field       | Type     | Default            |
-| ----------- | -------- | ------------------ |
-| task_id     | text     | ""                 |
-
-#### SearXNG tab
-
-Dropdown: `GET /search`
-
-| Field       | Type     | Default            |
-| ----------- | -------- | ------------------ |
-| q           | text     | ""                 |
-| format      | select   | json               |
-| categories  | multi-select | general         |
-| pageno      | number   | 1                  |
-
-#### Response Viewer
-
-Large `<pre>` block (or `<ScrollArea>`) showing the JSON response, syntax-highlighted. Auto-scrolls to bottom on new response.
-
-### 5.4 Request Activity Page
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  [Search: ___________________________ 🔍]                │
-│                                                          │
-│  Filters:                                                │
-│  Method: [All | GET | POST]   Path: [All | /v2/search | /v2/scrape | ...] │
-│  Status: [All | 2xx | 4xx | 5xx]                        │
-│  Time:   [Last 15m | 1h | 6h | 24h | Custom date picker]│
-│                                                          │
-│  ┌──────────────────────────────────────────────────────┐│
-│  │ Table (sortable columns):                            ││
-│  │ Time | Method | Path | Status | Duration |           ││
-│  │──────────────────────────────────────────────────────││
-│  │ 10:05 | POST | /v2/scrape | 200 | 4.5s |  [View]   ││
-│  │ 10:04 | POST | /v2/search | 200 | 120ms|  [View]   ││
-│  └──────────────────────────────────────────────────────┘│
-│  [Pagination: ← 1 2 3 ... →]                            │
-└──────────────────────────────────────────────────────────┘
-```
-
-Search works across `JSON.stringify(entry)`, so it matches any text in request body + response body.
-
-Clicking a row opens a **Dialog** with two tabs: **Request** (pretty-printed JSON body) and **Response** (pretty-printed JSON body).
-
-Pagination: offset/limit, server-side via `GET /api/activity?offset=...&limit=...`.
+- Modify: `client/src/components/playground/*` only if the playground needs better error display
 
 ---
 
-## 6. Phase 4 — Backend: Serve SPA from Bun
+## 5. Task Breakdown
 
-Modify `src/index.ts`:
+### Task 1: Define the activity persistence contract
 
-```ts
-// After all API routes, add static file serving + SPA fallback
+**Objective:** Freeze the SQLite row shape and the high-priority path allowlist before changing code.
 
-const STATIC_DIR = path.join(import.meta.dir, "../client/dist");
+**Files:**
+- Modify: `src/types/dashboard.ts`
+- Create: `src/stores/activity-paths.ts`
 
-// If no API route matched, try to serve a static file
-const filePath = path.join(STATIC_DIR, url.pathname);
-const file = Bun.file(filePath);
-if (await file.exists()) {
-  return new Response(file);
-}
+**Decisions to lock:**
+- Persisted row fields: `id`, `timestamp`, `method`, `path`, `status`, `durationMs`, `requestBody`, `responseBody`, `error`
+- Only persist the high-priority paths listed above
+- Keep truncation behavior for large request/response bodies
 
-// SPA fallback — serve index.html for all other paths
-return new Response(Bun.file(path.join(STATIC_DIR, "index.html")));
-```
-
-The order matters: API routes first, then static files, then SPA fallback.
+**Verification:**
+- The allowlist file should be readable from both logger and store code
+- The row shape should remain compatible with the dashboard API response
 
 ---
 
-## 7. Phase 5 — Root Scripts & Build
+### Task 2: Create the SQLite-backed activity store
 
-Update root `package.json`:
+**Objective:** Persist request activity entries to SQLite with insert/query support.
 
-```json
-{
-  "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts",
-    "test": "bun test",
-    "client:dev": "cd client && bun run dev",
-    "client:build": "cd client && bun run build",
-    "build": "cd client && bun run build",
-    "dev:full": "bun run client:build && bun run dev"
-  }
-}
-```
+**Files:**
+- Create: `src/stores/sqlite-activity-store.ts`
+- Create: `src/db.ts` or `src/storage/db.ts`
 
-Docker build must also run `bun run client:build` before `bun run start`.
+**Implementation details:**
+- Create the table on startup if missing
+- Insert rows only for allowed paths
+- Query with search, method, path, status, time range, limit, and offset
+- Preserve ordering by newest first
+- Keep the implementation minimal; no ORM unless the project already uses one
 
----
-
-## 8. Phase 6 — Tests (existing + new)
-
-Existing test suite (`tests/`) must continue to pass. No changes to Firecrawl API routes — only additive.
-
-New test files:
-
-- `tests/api/metrics.test.ts` — test `GET /api/metrics` returns valid shape
-- `tests/api/activity.test.ts` — test `GET /api/activity` with filters
+**Verification:**
+- Insert a sample activity row
+- Query it back by path
+- Confirm disallowed paths are not inserted
 
 ---
 
-## 9. Implementation Order
+### Task 3: Wire request logging to SQLite persistence
 
-| Phase | Scope                                    | Key deliverable                                              |
-| ----- | ---------------------------------------- | ------------------------------------------------------------ |
-| 1     | Scaffold React client                    | Vite + React + shadcn + router, `bun run client:dev` works   |
-| 2     | Backend activity + metrics store         | `activity-store.ts`, `metrics-store.ts`, insert into logger  |
-| 3     | API routes `/api/metrics`, `/api/activity` | Endpoints return documented shapes                          |
-| 4     | Serve SPA from Bun                       | `/#/...` loads the React app via Bun                         |
-| 5     | Dashboard page                           | StatCards, charts (Recharts), time range, recent requests    |
-| 6     | API Playground page                      | 3 provider tabs, dynamic forms, response viewer              |
-| 7     | Request Activity page                    | Table, filters, search, detail dialog                        |
-| 8     | Polish + tests                           | Add new test files, verify existing 23 tests still pass      |
-| 9     | Docker + CI update                       | Multi-stage Dockerfile (build client + bundle)               |
+**Objective:** Make `logRequest()` and `logFailure()` write persisted activity only for high-priority paths.
+
+**Files:**
+- Modify: `src/logger.ts`
+- Modify: `src/routes/search.ts`
+- Modify: `src/routes/scrape.ts`
+- Modify: `src/routes/api/proxy.ts`
+
+**Implementation details:**
+- Keep JSON console logging if helpful
+- Add a persistence call only when the path matches the allowlist
+- Truncate request/response bodies before saving if needed
+- Do not persist low-priority paths
+
+**Verification:**
+- A request to `/v2/search` creates one persisted activity row
+- A request to `/api/proxy/searxng/search` creates one persisted activity row
+- A request to `/api/metrics` does not create a row
 
 ---
 
-## 10. Notes
+### Task 4: Switch activity and metrics reads to the SQLite store
 
-- **No auth on web UI** — dashboard, playground, activity are all public.
-- **Metrics/activity are in-memory only** — lost on restart. For production, can swap to SQLite later. This is fine for v1.
-- **Tailwind v4** — shadcn/ui now defaults to Tailwind v4 with `@tailwindcss/vite` plugin. Configure accordingly.
-- **Charts are client-side** — Recharts renders from the metrics JSON. No server-side chart rendering.
-- **Port same as backend** — the web UI is served from the same Bun server, no separate dev server needed in production. For local dev, `bun run client:dev` runs Vite dev server on port 5173 with proxy to backend — optional convenience.
-- **Backward compatible** — no existing API endpoints are changed. Only additive.
+**Objective:** Ensure the dashboard reads from persisted activity data.
+
+**Files:**
+- Modify: `src/stores/activity-store.ts`
+- Modify: `src/stores/metrics-store.ts`
+- Modify: `src/routes/api/activity.ts`
+- Modify: `src/routes/api/metrics.ts`
+
+**Implementation details:**
+- Replace `getAllLogs()` usage with SQLite queries
+- Keep API response shape stable for the frontend
+- Preserve filtering/search/pagination behavior
+- For metrics, compute from the persisted activity rows
+
+**Verification:**
+- `/api/activity` still returns the same shape
+- `/api/metrics` still returns summary + time series
+- Both endpoints work after restart, proving persistence
+
+---
+
+### Task 5: Fix playground 500s by hardening proxy routes
+
+**Objective:** Make playground proxy requests fail with actionable errors instead of generic 500s.
+
+**Files:**
+- Modify: `src/routes/api/proxy.ts`
+- Modify: `src/index.ts`
+- Create: `tests/api/playground-proxy.test.ts`
+
+**Implementation details:**
+- Wrap `req.json()` with explicit invalid JSON handling
+- Check upstream `fetch()` status and body safely
+- Return meaningful `4xx`/`5xx` responses depending on the failure cause
+- Keep the public route contracts unchanged
+
+**Verification:**
+- Invalid JSON returns a controlled `400`
+- Upstream unreachable returns a controlled `502`
+- Unexpected backend response shape does not become an unhelpful generic crash
+
+---
+
+### Task 6: Add tests for path allowlist and persistence behavior
+
+**Objective:** Prove only high-priority paths are stored.
+
+**Files:**
+- Create: `tests/api/activity-sqlite.test.ts`
+- Modify: existing logger/activity tests if needed
+
+**Test cases:**
+- Allowed paths are persisted
+- Disallowed paths are not persisted
+- Search/pagination still work on persisted rows
+
+**Verification:**
+- `bun test` passes
+- Tests prove persistence rules are enforced
+
+---
+
+### Task 7: Run live verification and clean up
+
+**Objective:** Confirm the SQLite store, activity filtering, and playground error handling work in the running app.
+
+**Files:**
+- No new files unless a small test helper is needed
+
+**Verification checklist:**
+- Trigger `/v2/search` and `/v2/scrape`
+- Trigger a playground SearXNG and Crawl4AI request
+- Confirm allowed paths appear in `/api/activity`
+- Confirm low-priority paths do not appear
+- Confirm playground failure modes return explicit errors instead of silent 500s
+- Run `bun test`
+
+---
+
+## 6. Implementation Order
+
+1. Define allowlist + persisted row contract
+2. Add SQLite storage layer
+3. Wire logger to SQLite persistence
+4. Switch dashboard reads to SQLite
+5. Harden playground routes
+6. Add and run tests
+7. Verify live behavior
+
+---
+
+## 7. Acceptance Criteria
+
+- Request activity persists across restart via SQLite
+- Only high-priority paths are saved
+- Playground proxy no longer returns unexplained 500s for expected failure cases
+- Dashboard endpoints still work
+- Tests pass
+
+---
+
+## 8. Suggested Commit Sequence
+
+1. `feat: define activity allowlist and sqlite contract`
+2. `feat: persist request activity to sqlite`
+3. `fix: harden playground proxy errors`
+4. `test: cover activity persistence and proxy failures`
+5. `docs: update plan and verification notes`
+
+---
+
+## 9. Notes for the Implementer
+
+- Do not keep the old in-memory-only buffer as the source of truth once SQLite is working.
+- If you need temporary compatibility, keep the in-memory buffer only as a short-lived bridge, not the final design.
+- Prefer explicit, simple SQL over abstraction.
+- The allowlist should be centralized in one file so the logger, store, and tests all agree.
