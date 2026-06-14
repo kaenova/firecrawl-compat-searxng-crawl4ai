@@ -55,7 +55,7 @@ describe("sqlite-activity-store", () => {
     expect(result.total).toBe(0);
   });
 
-  it("matches dynamic poll path", () => {
+  it("rejects dynamic poll path", () => {
     insertActivityLog(
       makeLog({
         path: "/api/proxy/crawl4ai/crawl/job/abc123",
@@ -63,7 +63,7 @@ describe("sqlite-activity-store", () => {
       })
     );
     const result = queryActivityLogs({});
-    expect(result.total).toBe(1);
+    expect(result.total).toBe(0);
   });
 
   it("queries with pagination", () => {
@@ -89,11 +89,13 @@ describe("sqlite-activity-store", () => {
 
   it("filters by method", () => {
     insertActivityLog(makeLog({ method: "POST", path: "/v2/search" }));
-    insertActivityLog(makeLog({ method: "GET", path: "/api/proxy/searxng/search" }));
+    insertActivityLog(makeLog({ method: "POST", path: "/v2/scrape" }));
 
-    const result = queryActivityLogs({ method: "GET" });
-    expect(result.total).toBe(1);
-    expect(result.logs[0].method).toBe("GET");
+    const postResult = queryActivityLogs({ method: "POST" });
+    expect(postResult.total).toBe(2);
+
+    const getResult = queryActivityLogs({ method: "GET" });
+    expect(getResult.total).toBe(0);
   });
 
   it("filters by path", () => {

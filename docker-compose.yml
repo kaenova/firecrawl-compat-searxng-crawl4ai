@@ -8,6 +8,9 @@ services:
       CRAWL4AI_URL: http://crawl4ai:11235
       SCRAPE_TIMEOUT: 60
       POLL_INTERVAL: 1000
+      ACTIVITY_DB_PATH: /app/data/activity.db
+    volumes:
+      - activity-db:/app/data
     depends_on:
       - searxng
       - crawl4ai
@@ -21,3 +24,6 @@ services:
     image: unclecode/crawl4ai:latest
     ports:
       - "11235:11235"
+
+volumes:
+  activity-db:

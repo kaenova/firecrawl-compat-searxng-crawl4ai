@@ -10,6 +10,7 @@ import {
   handleSearxngProxy,
 } from "./routes/api/proxy.ts";
 import { logFailure, logRequest } from "./logger.ts";
+import { initActivityStore } from "./stores/sqlite-activity-store.ts";
 
 /* ------------------------------------------------------------------
    HTTP helpers
@@ -142,6 +143,8 @@ function getContentType(path: string): string {
 let server: ReturnType<typeof Bun.serve> | undefined;
 
 if (import.meta.main) {
+  initActivityStore(config.ACTIVITY_DB_PATH);
+
   server = Bun.serve({
     port: config.PORT,
     fetch: async (req) => {

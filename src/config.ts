@@ -21,4 +21,5 @@ export const config = {
   SCRAPE_TIMEOUT: getNumberEnv("SCRAPE_TIMEOUT", "60"),
   POLL_INTERVAL: getNumberEnv("POLL_INTERVAL", "1000"),
   FIRECRAWL_API_KEY: process.env["FIRECRAWL_API_KEY"] ?? undefined,
+  ACTIVITY_DB_PATH: process.env["ACTIVITY_DB_PATH"] ?? "activity.db",
 } as const;
