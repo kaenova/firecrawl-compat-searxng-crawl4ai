@@ -124,7 +124,7 @@ export default function RequestActivity() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          className="pl-9"
+          className="pl-9 text-base"
           placeholder="Search in request & response..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -133,10 +133,10 @@ export default function RequestActivity() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="space-y-1">
+      <div className="flex flex-wrap items-end gap-2 sm:gap-4">
+        <div className="space-y-1 w-full sm:w-auto">
           <label className="text-xs text-muted-foreground">Method</label>
-          <Select value={method} onChange={(e) => setMethod(e.target.value)}>
+          <Select className="w-full sm:w-auto text-base" value={method} onChange={(e) => setMethod(e.target.value)}>
             {methods.map((m) => (
               <option key={m} value={m}>
                 {m}
@@ -144,9 +144,9 @@ export default function RequestActivity() {
             ))}
           </Select>
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1 w-full sm:w-auto">
           <label className="text-xs text-muted-foreground">Path</label>
-          <Select value={path} onChange={(e) => setPath(e.target.value)}>
+          <Select className="w-full sm:w-auto text-base" value={path} onChange={(e) => setPath(e.target.value)}>
             {paths.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -154,37 +154,39 @@ export default function RequestActivity() {
             ))}
           </Select>
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1 w-full sm:w-auto">
           <label className="text-xs text-muted-foreground">Status</label>
           <Input
             type="number"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             placeholder="e.g. 200"
-            className="w-24"
+            className="w-full sm:w-24 text-base"
           />
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1 w-full sm:w-auto">
           <label className="text-xs text-muted-foreground">Start</label>
           <Input
             type="datetime-local"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
+            className="text-base w-full sm:w-auto"
           />
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1 w-full sm:w-auto">
           <label className="text-xs text-muted-foreground">End</label>
           <Input
             type="datetime-local"
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
+            className="text-base w-full sm:w-auto"
           />
         </div>
-        <Button onClick={handleApplyFilters}>Apply Filters</Button>
+        <Button className="h-10 w-full sm:w-auto" onClick={handleApplyFilters}>Apply Filters</Button>
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border">
+      <div className="rounded-lg border overflow-x-auto">
         {loading ? (
           <div className="py-12 text-center text-muted-foreground">
             Loading...
@@ -239,13 +241,13 @@ export default function RequestActivity() {
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm text-muted-foreground whitespace-nowrap">
           Page {page} of {totalPages || 1} ({total} total)
         </span>
         <div className="flex gap-2">
           <Button
             variant="outline"
-            size="sm"
+            className="h-10"
             disabled={page <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
@@ -253,7 +255,7 @@ export default function RequestActivity() {
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            className="h-10"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           >
@@ -264,7 +266,7 @@ export default function RequestActivity() {
 
       {/* Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[80vh] overflow-auto max-w-3xl">
+        <DialogContent className="max-h-[80vh] overflow-auto w-[95vw] md:w-auto md:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Request Details</DialogTitle>
             <DialogDescription>
@@ -290,13 +292,13 @@ export default function RequestActivity() {
             <div className="space-y-4">
               <div>
                 <h4 className="text-sm font-medium mb-1">Request Body</h4>
-                <pre className="rounded-md border bg-muted p-3 text-xs font-mono overflow-auto max-h-48">
+                <pre className="rounded-md border bg-muted p-3 text-xs font-mono overflow-auto max-h-[35vh] md:max-h-48">
                   {formatJson(selectedLog.requestBody)}
                 </pre>
               </div>
               <div>
                 <h4 className="text-sm font-medium mb-1">Response Body</h4>
-                <pre className="rounded-md border bg-muted p-3 text-xs font-mono overflow-auto max-h-48">
+                <pre className="rounded-md border bg-muted p-3 text-xs font-mono overflow-auto max-h-[35vh] md:max-h-48">
                   {formatJson(selectedLog.responseBody)}
                 </pre>
               </div>
@@ -305,7 +307,7 @@ export default function RequestActivity() {
                   <h4 className="text-sm font-medium mb-1 text-destructive">
                     Error
                   </h4>
-                  <pre className="rounded-md border bg-destructive/10 p-3 text-xs font-mono overflow-auto max-h-48 text-destructive">
+                  <pre className="rounded-md border bg-destructive/10 p-3 text-xs font-mono overflow-auto max-h-[35vh] md:max-h-48 text-destructive">
                     {selectedLog.error}
                   </pre>
                 </div>

@@ -139,25 +139,27 @@ export default function ApiPlayground() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="firecrawl">Firecrawl Proxy</TabsTrigger>
-          <TabsTrigger value="crawl4ai">Crawl4AI</TabsTrigger>
-          <TabsTrigger value="searxng">SearXNG</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto">
+          <TabsList>
+            <TabsTrigger value="firecrawl">Firecrawl Proxy</TabsTrigger>
+            <TabsTrigger value="crawl4ai">Crawl4AI</TabsTrigger>
+            <TabsTrigger value="searxng">SearXNG</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="firecrawl">
           <div className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant={subTab === "search" ? "default" : "outline"}
-                size="sm"
+                className="h-10"
                 onClick={() => setSubTab("search")}
               >
                 Search
               </Button>
               <Button
                 variant={subTab === "scrape" ? "default" : "outline"}
-                size="sm"
+                className="h-10"
                 onClick={() => setSubTab("scrape")}
               >
                 Scrape
@@ -168,18 +170,21 @@ export default function ApiPlayground() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Query</label>
                 <Input
+                  className="text-base w-full"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search query..."
                 />
                 <label className="text-sm font-medium">Limit</label>
                 <Input
+                  className="text-base w-full"
                   type="number"
                   value={searchLimit}
                   onChange={(e) => setSearchLimit(Number(e.target.value))}
                   placeholder="10"
                 />
                 <Button
+                  className="h-10"
                   onClick={handleFirecrawlSearch}
                   disabled={loading || !searchQuery.trim()}
                 >
@@ -190,12 +195,13 @@ export default function ApiPlayground() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">URL</label>
                 <Input
+                  className="text-base w-full"
                   value={scrapeUrl}
                   onChange={(e) => setScrapeUrl(e.target.value)}
                   placeholder="https://example.com"
                 />
                 <label className="text-sm font-medium">Formats</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {["markdown", "html", "rawHtml"].map((f) => (
                     <label key={f} className="flex items-center gap-1 text-sm">
                       <input
@@ -216,6 +222,7 @@ export default function ApiPlayground() {
                   ))}
                 </div>
                 <Button
+                  className="h-10"
                   onClick={handleFirecrawlScrape}
                   disabled={loading || !scrapeUrl.trim()}
                 >
@@ -231,11 +238,13 @@ export default function ApiPlayground() {
             <div className="space-y-2">
               <label className="text-sm font-medium">URL</label>
               <Input
+                className="text-base w-full"
                 value={crawlUrl}
                 onChange={(e) => setCrawlUrl(e.target.value)}
                 placeholder="https://example.com"
               />
               <Button
+                className="h-10"
                 onClick={handleCrawl4aiSubmit}
                 disabled={loading || !crawlUrl.trim()}
               >
@@ -243,7 +252,7 @@ export default function ApiPlayground() {
               </Button>
             </div>
             {crawlTaskId && (
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Task ID:</span>
                 <Badge variant="secondary">{crawlTaskId}</Badge>
                 <span className="text-muted-foreground">Status:</span>
@@ -268,11 +277,13 @@ export default function ApiPlayground() {
             <div className="space-y-2">
               <label className="text-sm font-medium">Query</label>
               <Input
+                className="text-base w-full"
                 value={searxQuery}
                 onChange={(e) => setSearxQuery(e.target.value)}
                 placeholder="Search query..."
               />
               <Button
+                className="h-10"
                 onClick={handleSearxngSearch}
                 disabled={loading || !searxQuery.trim()}
               >
@@ -302,7 +313,7 @@ export default function ApiPlayground() {
             )}
             <Button
               variant="outline"
-              size="sm"
+              className="h-10"
               onClick={() => {
                 setResponse(null);
                 setCrawlResult(null);
@@ -312,7 +323,7 @@ export default function ApiPlayground() {
             </Button>
           </div>
         </div>
-        <pre className="min-h-[400px] overflow-auto rounded-lg border bg-muted p-4 text-xs font-mono">
+        <pre className="min-h-[200px] md:min-h-[400px] overflow-auto rounded-lg border bg-muted p-4 text-xs font-mono">
           {response
             ? formatJson(response.body)
             : crawlResult
