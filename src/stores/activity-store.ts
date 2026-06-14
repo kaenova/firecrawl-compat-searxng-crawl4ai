@@ -1,12 +1,20 @@
 import { getAllLogs } from "../logger.ts";
+import { queryActivityLogs } from "./sqlite-activity-store.ts";
+import { isHighPriorityPath } from "./activity-paths.ts";
 import type { ActivityQuery, ActivityResponse } from "../types/dashboard.ts";
 
 export function queryActivity(query: ActivityQuery): ActivityResponse {
-  let logs = getAllLogs();
+  // Baca data high-priority yang dipersist ke SQLite
+  const sqliteResult = queryActivityLogs(query);
+
+  // Baca data low-priority dari in-memory buffer untuk backward compat
+  let memoryLogs = getAllLogs().filter(
+    (log) => !isHighPriorityPath(log.method, log.path)
+  );
 
   if (query.search) {
     const term = query.search.toLowerCase();
-    logs = logs.filter((log) => {
+    memoryLogs = memoryLogs.filter((log) => {
       const haystack = [
         log.method,
         log.path,
@@ -21,32 +29,41 @@ export function queryActivity(query: ActivityQuery): ActivityResponse {
   }
 
   if (query.method) {
-    logs = logs.filter((log) => log.method === query.method);
+    memoryLogs = memoryLogs.filter((log) => log.method === query.method);
   }
 
   if (query.path) {
-    logs = logs.filter((log) => log.path === query.path);
+    memoryLogs = memoryLogs.filter((log) => log.path === query.path);
   }
 
   if (query.status !== undefined) {
-    logs = logs.filter((log) => log.status === query.status);
+    memoryLogs = memoryLogs.filter((log) => log.status === query.status);
   }
 
   if (query.startTime) {
     const start = new Date(query.startTime).getTime();
-    logs = logs.filter((log) => new Date(log.timestamp).getTime() >= start);
+    memoryLogs = memoryLogs.filter(
+      (log) => new Date(log.timestamp).getTime() >= start
+    );
   }
 
   if (query.endTime) {
     const end = new Date(query.endTime).getTime();
-    logs = logs.filter((log) => new Date(log.timestamp).getTime() <= end);
+    memoryLogs = memoryLogs.filter(
+      (log) => new Date(log.timestamp).getTime() <= end
+    );
   }
 
-  const total = logs.length;
+  // Gabungkan hasil SQLite + memory, urutkan newest-first, lalu paginasi
+  const merged = [...sqliteResult.logs, ...memoryLogs].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+
+  const total = merged.length;
   const page = Math.max(1, query.page ?? 1);
   const limit = Math.min(200, Math.max(1, query.limit ?? 50));
   const startIndex = (page - 1) * limit;
-  const paginated = logs.slice(startIndex, startIndex + limit);
+  const paginated = merged.slice(startIndex, startIndex + limit);
 
   return {
     logs: paginated,

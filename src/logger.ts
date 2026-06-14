@@ -1,6 +1,6 @@
-import { ActivityLog } from "./types/dashboard.ts";
-
-type LogLevel = "info" | "warn" | "error";
+import type { ActivityLog } from "./types/dashboard.ts";
+import { insertActivityLog } from "./stores/sqlite-activity-store.ts";
+import { isHighPriorityPath } from "./stores/activity-paths.ts";
 
 export interface RequestLogContext {
   method: string;
@@ -35,7 +35,7 @@ function toErrorMessage(error: unknown): string {
   }
 }
 
-function log(level: LogLevel, event: string, context: Record<string, unknown>): void {
+function log(level: "info" | "warn" | "error", event: string, context: Record<string, unknown>): void {
   const payload = {
     timestamp: new Date().toISOString(),
     level,
@@ -59,6 +59,15 @@ function pushToBuffer(entry: ActivityLog): void {
   logBuffer.push(entry);
 }
 
+function persistIfHighPriority(entry: ActivityLog, method: string, path: string): void {
+  if (!isHighPriorityPath(method, path)) return;
+  try {
+    insertActivityLog(entry);
+  } catch {
+    // Jangan biarkan kegagalan SQLite mengganggu logging
+  }
+}
+
 export function logRequest(context: RequestLogContext): void {
   const entry: ActivityLog = {
     id: crypto.randomUUID(),
@@ -71,6 +80,7 @@ export function logRequest(context: RequestLogContext): void {
     responseBody: context.responseBody,
   };
   pushToBuffer(entry);
+  persistIfHighPriority(entry, context.method, context.path);
   log("info", "request.completed", context as Record<string, unknown>);
 }
 
@@ -86,6 +96,7 @@ export function logFailure(context: ErrorLogContext): void {
     requestBody: context.requestBody,
   };
   pushToBuffer(entry);
+  persistIfHighPriority(entry, context.method, context.path);
   log("error", "request.failed", {
     ...context,
     error: toErrorMessage(context.error),
