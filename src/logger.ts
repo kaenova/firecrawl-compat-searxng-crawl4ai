@@ -22,9 +22,6 @@ export interface ErrorLogContext {
   requestBody?: string;
 }
 
-const MAX_BUFFER_SIZE = 5000;
-const logBuffer: ActivityLog[] = [];
-
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -52,13 +49,6 @@ function log(level: "info" | "warn" | "error", event: string, context: Record<st
   console.log(line);
 }
 
-function pushToBuffer(entry: ActivityLog): void {
-  if (logBuffer.length >= MAX_BUFFER_SIZE) {
-    logBuffer.shift();
-  }
-  logBuffer.push(entry);
-}
-
 function persistIfHighPriority(entry: ActivityLog, method: string, path: string): void {
   if (!isHighPriorityPath(method, path)) return;
   try {
@@ -79,7 +69,6 @@ export function logRequest(context: RequestLogContext): void {
     requestBody: context.requestBody,
     responseBody: context.responseBody,
   };
-  pushToBuffer(entry);
   persistIfHighPriority(entry, context.method, context.path);
   log("info", "request.completed", context as Record<string, unknown>);
 }
@@ -95,7 +84,6 @@ export function logFailure(context: ErrorLogContext): void {
     error: toErrorMessage(context.error),
     requestBody: context.requestBody,
   };
-  pushToBuffer(entry);
   persistIfHighPriority(entry, context.method, context.path);
   log("error", "request.failed", {
     ...context,
@@ -103,13 +91,10 @@ export function logFailure(context: ErrorLogContext): void {
   } as Record<string, unknown>);
 }
 
-export function getRecentLogs(limit?: number): ActivityLog[] {
-  if (limit === undefined || limit <= 0) {
-    return logBuffer.slice();
-  }
-  return logBuffer.slice(-limit);
+export function getRecentLogs(_limit?: number): ActivityLog[] {
+  return [];
 }
 
 export function getAllLogs(): ActivityLog[] {
-  return logBuffer.slice();
+  return [];
 }

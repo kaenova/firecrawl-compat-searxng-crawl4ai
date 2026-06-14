@@ -154,16 +154,14 @@ if (import.meta.main) {
       if (path.startsWith("/v2/") || path.startsWith("/api/")) {
         return appFetch(req);
       }
-      // Static files
+      // Static files only — UI is served at / (HashRouter handles /#/... client-side)
       const filePath = path === "/" ? "client/dist/index.html" : `client/dist${path}`;
       const file = Bun.file(filePath);
       if (await file.exists()) {
         return new Response(file, { headers: { "Content-Type": getContentType(filePath) } });
       }
-      // SPA fallback
-      return new Response(Bun.file("client/dist/index.html"), {
-        headers: { "Content-Type": "text/html" },
-      });
+      // No SPA fallback — non-existent paths return 404
+      return jsonResponse({ success: false, error: "Not found" }, 404);
     },
   });
   console.log(`Server listening on http://localhost:${server.port}`);

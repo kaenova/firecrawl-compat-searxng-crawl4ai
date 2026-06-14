@@ -70,18 +70,22 @@ describe("Dashboard API", () => {
     expect(typeof body.limit).toBe("number");
   });
 
-  it("GET /api/activity?search=health filters correctly", async () => {
-    // Ensure at least one /v2/health request exists in logs
-    await fetch(`${PROXY_URL}/v2/health`);
+  it("GET /api/activity?search=query filters correctly", async () => {
+    // Ensure at least one POST /v2/search request exists in SQLite logs
+    await fetch(`${PROXY_URL}/v2/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "dashboard query test" }),
+    });
     await new Promise((r) => setTimeout(r, 50));
 
-    const res = await fetch(`${PROXY_URL}/api/activity?search=health`);
+    const res = await fetch(`${PROXY_URL}/api/activity?search=dashboard%20query%20test`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       logs: Array<{ path: string }>;
     };
     expect(body.logs.length).toBeGreaterThan(0);
-    expect(body.logs.some((log) => log.path === "/v2/health")).toBe(true);
+    expect(body.logs.some((log) => log.path === "/v2/search")).toBe(true);
   });
 
   it("GET /api/activity?status=200 filters correctly", async () => {
