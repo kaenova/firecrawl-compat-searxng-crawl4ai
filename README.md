@@ -9,6 +9,63 @@
 
 ---
 
+## 🚀 Quick Start
+
+### Option 1 — Docker Compose (recommended)
+
+One command spins up the proxy + both backends:
+
+```bash
+git clone https://github.com/kaenova/firecrawl-compat-searxng-crawl4ai.git
+cd firecrawl-compat-searxng-crawl4ai
+docker compose up
+```
+
+Services exposed:
+- Proxy UI + API → `http://localhost:3002`
+- SearXNG JSON → `http://localhost:8080`
+- Crawl4AI → `http://localhost:11235`
+
+Open `http://localhost:3002/#/dashboard` in your browser.
+
+### Option 2 — Docker Containers (manual)
+
+Provision each backend separately, then run the proxy:
+
+```bash
+# 1. SearXNG (pre-configured JSON output)
+docker run -d -p 8080:8080 --name searxng \
+  kaenova/searxng-json:latest
+
+# 2. Crawl4AI
+docker run -d -p 11235:11235 --name crawl4ai \
+  unclecode/crawl4ai:latest
+
+# 3. Proxy
+docker run -d -p 3002:3002 \
+  -e SEARXNG_URL=http://host.docker.internal:8080 \
+  -e CRAWL4AI_URL=http://host.docker.internal:11235 \
+  -e ACTIVITY_DB_PATH=/app/data/activity.db \
+  -v ./activity-data:/app/data \
+  --name proxy \
+  kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+```
+
+> **Note:** `host.docker.internal` works on Docker Desktop (macOS/Windows). On Linux, use the SearXNG / Crawl4AI container IPs or run all containers on the same user-defined network.
+
+### Option 3 — Local Development (Bun)
+
+```bash
+git clone https://github.com/kaenova/firecrawl-compat-searxng-crawl4ai.git
+cd firecrawl-compat-searxng-crawl4ai
+bun install
+cp .env.example .env
+# Edit .env — set SEARXNG_URL and CRAWL4AI_URL
+bun run dev   # watch mode on localhost:3002
+```
+
+---
+
 ## ✨ Features
 
 | Feature | Status | Backend |
@@ -42,35 +99,6 @@ The proxy maps Firecrawl v2 request/response shapes to SearXNG and Crawl4AI nati
 
 - **Search**: Firecrawl parameters → SearXNG `q`, `pageno`, `language`, `time_range`, `site:` filters
 - **Scrape**: Firecrawl parameters → Crawl4AI `POST /crawl` + polling `GET /task/:id` until `completed`
-
----
-
-## 🚀 Quick Start
-
-### 1. Clone & Install
-
-```bash
-git clone https://github.com/kaenova/firecrawl-compat-searxng-crawl4ai.git
-cd firecrawl-compat-searxng-crawl4ai
-bun install
-```
-
-### 2. Configure
-
-```bash
-cp .env.example .env
-# Edit .env — at minimum set SEARXNG_URL and CRAWL4AI_URL
-```
-
-### 3. Run
-
-```bash
-bun run src/index.ts
-# or
-bun run dev      # watch mode
-```
-
-Server starts on `http://localhost:3002` by default.
 
 ---
 
@@ -222,53 +250,6 @@ bun test tests/sdk/
 
 ---
 
-## 🐳 Docker
-
-### Pull from Docker Hub
-
-```bash
-docker pull kaenova/firecrawl-searxng-crawl4ai-proxy:latest
-docker run -p 3002:3002 \
-  -e SEARXNG_URL=http://host.docker.internal:8080 \
-  -e CRAWL4AI_URL=http://host.docker.internal:11235 \
-  -e ACTIVITY_DB_PATH=/app/data/activity.db \
-  -v ./activity-data:/app/data \
-  kaenova/firecrawl-searxng-crawl4ai-proxy:latest
-```
-
-> **Note:** Mount a volume for the SQLite activity database so request logs persist across container restarts. The default database path inside the container is `/app/activity.db`. Use `ACTIVITY_DB_PATH` to relocate it (e.g. to a volume-mounted directory) as shown above.
-
-### Build & Run
-
-```bash
-docker build -t firecrawl-proxy .
-docker run -p 3002:3002 \
-  -e SEARXNG_URL=http://host.docker.internal:8080 \
-  -e CRAWL4AI_URL=http://host.docker.internal:11235 \
-  -e ACTIVITY_DB_PATH=/app/data/activity.db \
-  -v ./activity-data:/app/data \
-  firecrawl-proxy
-```
-
-### Docker Compose (dev stack)
-
-```bash
-docker compose up
-```
-
-Spins up:
-- `proxy` on port `3002`
-- `searxng` on port `8080`
-- `crawl4ai` on port `11235`
-
-A named volume `activity-db` is mounted at `/app/data` and `ACTIVITY_DB_PATH` is set to `/app/data/activity.db` so request activity persists across restarts.
-
-**Backend images used:**
-- **SearXNG JSON** — `kaenova/searxng-json:latest` ([Docker Hub](https://hub.docker.com/r/kaenova/searxng-json/tags) · [GitHub](https://github.com/kaenova/searxng-json-docker)) — pre-configured for JSON output so the proxy can parse results without HTML scraping.
-- **Crawl4AI** — `unclecode/crawl4ai:latest` ([Docker Hub](https://hub.docker.com/r/unclecode/crawl4ai)) — the official async web-crawling engine.
-
----
-
 ## 💾 Request Activity Persistence
 
 The proxy stores request activity (search, scrape, and playground calls) in a **SQLite database**. This enables the dashboard to show metrics and request history that survive server restarts.
@@ -318,6 +299,41 @@ const app = new FirecrawlApp({
 const search = await app.search("bun runtime");
 const scrape = await app.scrape("https://example.com", { formats: ["markdown"] });
 ```
+
+---
+
+## 🐳 Docker Reference
+
+### Pull & Run (proxy only)
+
+```bash
+docker pull kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+docker run -p 3002:3002 \
+  -e SEARXNG_URL=http://host.docker.internal:8080 \
+  -e CRAWL4AI_URL=http://host.docker.internal:11235 \
+  -e ACTIVITY_DB_PATH=/app/data/activity.db \
+  -v ./activity-data:/app/data \
+  kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+```
+
+> Mount a volume for the SQLite activity database so request logs persist across container restarts. The default database path inside the container is `/app/activity.db`. Use `ACTIVITY_DB_PATH` to relocate it (e.g. to a volume-mounted directory) as shown above.
+
+### Build locally
+
+```bash
+docker build -t firecrawl-proxy .
+docker run -p 3002:3002 \
+  -e SEARXNG_URL=http://host.docker.internal:8080 \
+  -e CRAWL4AI_URL=http://host.docker.internal:11235 \
+  -e ACTIVITY_DB_PATH=/app/data/activity.db \
+  -v ./activity-data:/app/data \
+  firecrawl-proxy
+```
+
+### Backend images
+
+- **SearXNG JSON** — `kaenova/searxng-json:latest` ([Docker Hub](https://hub.docker.com/r/kaenova/searxng-json/tags) · [GitHub](https://github.com/kaenova/searxng-json-docker)) — pre-configured for JSON output so the proxy can parse results without HTML scraping.
+- **Crawl4AI** — `unclecode/crawl4ai:latest` ([Docker Hub](https://hub.docker.com/r/unclecode/crawl4ai)) — the official async web-crawling engine.
 
 ---
 
