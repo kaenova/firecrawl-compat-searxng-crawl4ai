@@ -1,4 +1,4 @@
-# PLAN — firecrawl-searxng-crawl4ai-proxy
+# PLAN — firecrawl-compat
 
 > Firecrawl-compatible `/v2/search` and `/v2/scrape` proxy backed by SearXNG + Crawl4AI.
 > Runtime: **Bun** + **TypeScript**. Test runner: **Bun test** (built-in).
@@ -483,7 +483,7 @@ on:
     branches: [main]
 
 env:
-  IMAGE_NAME: firecrawl-searxng-crawl4ai-proxy
+  IMAGE_NAME: firecrawl-compat
 
 jobs:
   test:

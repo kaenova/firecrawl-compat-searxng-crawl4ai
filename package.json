@@ -1,5 +1,5 @@
 {
-  "name": "firecrawl-searxng-crawl4ai-proxy",
+  "name": "firecrawl-compat",
   "module": "index.ts",
   "type": "module",
   "private": true,

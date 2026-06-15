@@ -1,11 +1,11 @@
-# 🔥 firecrawl-searxng-crawl4ai-proxy
+# 🔥 firecrawl-compat
 
 > A **Firecrawl-compatible API proxy** powered by **Whoogle** + **SearXNG** (search) and **Crawl4AI** (scrape). Drop-in replacement for Firecrawl v2 `/search` and `/scrape` endpoints — self-hosted, zero-cost, fully open-source.
 
 [![Bun](https://img.shields.io/badge/Bun-1.3+-black?logo=bun)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue?logo=typescript)](https://typescriptlang.org)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://docker.com)
-[![Tests](https://img.shields.io/badge/Tests-53%20passing-brightgreen)](https://github.com/kaenova/firecrawl-compat-searxng-crawl4ai/actions)
+[![Tests](https://img.shields.io/badge/Tests-53%20passing-brightgreen)](https://github.com/kaenova/firecrawl-compat/actions)
 
 ---
 
@@ -16,8 +16,8 @@
 One command spins up the proxy + all three backends:
 
 ```bash
-git clone https://github.com/kaenova/firecrawl-compat-searxng-crawl4ai.git
-cd firecrawl-compat-searxng-crawl4ai
+git clone https://github.com/kaenova/firecrawl-compat.git
+cd firecrawl-compat
 docker compose up
 ```
 
@@ -55,7 +55,7 @@ docker run -d -p 3002:3002 \
   -e ACTIVITY_DB_PATH=/app/data/activity.db \
   -v ./activity-data:/app/data \
   --name proxy \
-  kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+  kaenova/firecrawl-compat:latest
 ```
 
 > **Note:** `host.docker.internal` works on Docker Desktop (macOS/Windows). On Linux, use the container IPs or run all containers on the same user-defined network.
@@ -63,8 +63,8 @@ docker run -d -p 3002:3002 \
 ### Option 3 — Local Development (Bun)
 
 ```bash
-git clone https://github.com/kaenova/firecrawl-compat-searxng-crawl4ai.git
-cd firecrawl-compat-searxng-crawl4ai
+git clone https://github.com/kaenova/firecrawl-compat.git
+cd firecrawl-compat
 bun install
 cp .env.example .env
 # Edit .env — set WHOOGLE_ENDPOINT, SEARXNG_URL, and CRAWL4AI_URL
@@ -320,7 +320,7 @@ const scrape = await app.scrape("https://example.com", { formats: ["markdown"] }
 ### Pull & Run (proxy only)
 
 ```bash
-docker pull kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+docker pull kaenova/firecrawl-compat:latest
 docker run -p 3002:3002 \
   -e WHOOGLE_ENDPOINT=http://host.docker.internal:5000 \
   -e SEARXNG_URL=http://host.docker.internal:8080 \
@@ -328,7 +328,7 @@ docker run -p 3002:3002 \
   -e SEARCH_PRIORITY=whoogle,searxng \
   -e ACTIVITY_DB_PATH=/app/data/activity.db \
   -v ./activity-data:/app/data \
-  kaenova/firecrawl-searxng-crawl4ai-proxy:latest
+  kaenova/firecrawl-compat:latest
 ```
 
 > Mount a volume for the SQLite activity database so request logs persist across container restarts. The default database path inside the container is `/app/activity.db`. Use `ACTIVITY_DB_PATH` to relocate it (e.g. to a volume-mounted directory) as shown above.
