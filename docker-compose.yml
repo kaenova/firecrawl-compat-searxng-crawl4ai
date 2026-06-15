@@ -9,11 +9,14 @@ services:
       SCRAPE_TIMEOUT: 60
       POLL_INTERVAL: 1000
       ACTIVITY_DB_PATH: /app/data/activity.db
+      WHOOGLE_ENDPOINT: http://whoogle:5000
+      SEARCH_PRIORITY: whoogle,searxng
     volumes:
       - activity-db:/app/data
     depends_on:
       - searxng
       - crawl4ai
+      - whoogle
 
   # Pre-configured SearXNG with JSON output
   # Source: https://github.com/kaenova/searxng-json-docker
@@ -29,6 +32,13 @@ services:
     image: unclecode/crawl4ai:latest
     ports:
       - "11235:11235"
+
+  # Self-hosted privacy-respecting Google proxy
+  # Image: https://hub.docker.com/r/benbusby/whoogle-search
+  whoogle:
+    image: benbusby/whoogle-search:latest
+    ports:
+      - "5000:5000"
 
 volumes:
   activity-db:

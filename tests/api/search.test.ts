@@ -21,6 +21,7 @@ describe("POST /v2/search", () => {
         PORT: String(PROXY_PORT),
         SCRAPE_TIMEOUT: "2",
         POLL_INTERVAL: "100",
+        SEARCH_PRIORITY: "searxng",
       },
       stdout: "inherit",
       stderr: "inherit",

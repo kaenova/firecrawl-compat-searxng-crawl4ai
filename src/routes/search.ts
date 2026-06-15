@@ -1,7 +1,20 @@
 import { searchSearxng, type SearchRequest, type SearchResponse, type ErrorResponse } from "../adapters/searxng.ts";
+import { searchWhoogle } from "../adapters/whoogle.ts";
+import { config } from "../config.ts";
+
+const BACKENDS: Record<string, (req: SearchRequest) => Promise<SearchResponse | ErrorResponse>> = {
+  whoogle: searchWhoogle,
+  searxng: searchSearxng,
+};
+
+function getPriorityList(): string[] {
+  return config.SEARCH_PRIORITY
+    .split(",")
+    .map((b) => b.trim().toLowerCase())
+    .filter((b) => b.length > 0);
+}
 
 export async function handleSearch(req: Request): Promise<Response> {
-  const startedAt = Date.now();
   let body: unknown;
   try {
     body = await req.json();
@@ -14,13 +27,31 @@ export async function handleSearch(req: Request): Promise<Response> {
     return jsonResponse({ success: false, error: "query is required" }, 400);
   }
 
-  const result = await searchSearxng(searchReq);
+  const priorities = getPriorityList();
+  let lastError: ErrorResponse | null = null;
 
-  if (!result.success) {
-    return jsonResponse(result as ErrorResponse, 502);
+  for (const name of priorities) {
+    const backend = BACKENDS[name];
+    if (!backend) {
+      console.warn(`Unknown search backend in SEARCH_PRIORITY: ${name}`);
+      continue;
+    }
+
+    const result = await backend(searchReq);
+
+    if (result.success) {
+      return jsonResponse(result as SearchResponse, 200);
+    }
+
+    lastError = result as ErrorResponse;
+    console.warn(`Search backend ${name} failed: ${lastError.error}`);
   }
 
-  return jsonResponse(result as SearchResponse, 200);
+  if (lastError) {
+    return jsonResponse(lastError, 502);
+  }
+
+  return jsonResponse({ success: false, error: "No search backends configured" }, 502);
 }
 
 function jsonResponse(data: object, status: number): Response {
